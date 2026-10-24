@@ -5,7 +5,8 @@
 (function (root) {
   "use strict";
 
-  const POSITIONS = ["overlay", "before", "after", "prepend", "append"];
+  // "possess" changes the anchor itself instead of adding a decoration near it.
+  const POSITIONS = ["overlay", "before", "after", "prepend", "append", "possess"];
   const MAX_TEXT = 60;
   const MAX_PER_BATCH = 3;
 
@@ -77,6 +78,95 @@
       s.appendChild(svg("ellipse", { cx: x, cy: 12, rx: 2, ry: 5, fill: "#120800" }));
     }
     return s;
+  }
+
+  // ---------- possessions ----------
+  // possess(anchor, text) alters the page element and returns an undo function,
+  // or null when it doesn't suit the element. Effects only use transforms,
+  // opacity, filters and shadows, so the page never reflows.
+
+  function possessWithClass(cls) {
+    return (anchor) => {
+      anchor.classList.add("spook-fx", cls);
+      return () => anchor.classList.remove("spook-fx", cls);
+    };
+  }
+
+  // Splits the anchor's text into letters and lets a few of them come loose.
+  function hauntLetters(anchor) {
+    const walker = document.createTreeWalker(anchor, NodeFilter.SHOW_TEXT, {
+      acceptNode: (n) =>
+        !n.nodeValue.trim() || n.parentElement.closest(".spook-root, .spook-letters")
+          ? NodeFilter.FILTER_REJECT
+          : NodeFilter.FILTER_ACCEPT,
+    });
+    const nodes = [];
+    let chars = 0;
+    while (walker.nextNode()) {
+      nodes.push(walker.currentNode);
+      chars += walker.currentNode.nodeValue.length;
+    }
+    if (!nodes.length || chars > 120) return null;
+
+    const swaps = nodes.map((textNode) => {
+      const wrap = el("span", "spook-letters");
+      for (const part of textNode.nodeValue.split(/(\s+)/)) {
+        if (!part) continue;
+        if (!part.trim()) {
+          wrap.appendChild(document.createTextNode(part));
+          continue;
+        }
+        // Words stay unbreakable so loose letters can't change line wrapping.
+        const word = el("span", "spook-word");
+        for (const ch of part) {
+          const letter = el("span", "spook-letter", ch);
+          if (/\S/.test(ch) && Math.random() < 0.3) {
+            letter.classList.add("spook-letter-loose");
+            letter.style.animationDelay = `${(Math.random() * 5).toFixed(2)}s`;
+          }
+          word.appendChild(letter);
+        }
+        wrap.appendChild(word);
+      }
+      textNode.replaceWith(wrap);
+      return [wrap, textNode];
+    });
+    return () => swaps.forEach(([wrap, textNode]) => wrap.isConnected && wrap.replaceWith(textNode));
+  }
+
+  // Shows the model's line under (or above) the element while it's hovered.
+  function whisperOnHover(anchor, text) {
+    const line = text || pick(CAPTIONS);
+    let tip = null;
+    const hide = () => {
+      if (tip) tip.remove();
+      tip = null;
+    };
+    const show = () => {
+      if (tip) return;
+      const r = anchor.getBoundingClientRect();
+      tip = el("div", "spook-root spook-whisper", line);
+      tip.setAttribute("aria-hidden", "true");
+      tip.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - 260))}px`;
+      if (r.bottom + 48 > window.innerHeight) {
+        tip.style.top = `${r.top - 6}px`;
+        tip.classList.add("spook-whisper-above");
+      } else {
+        tip.style.top = `${r.bottom + 6}px`;
+      }
+      document.body.appendChild(tip);
+    };
+    anchor.addEventListener("mouseenter", show);
+    anchor.addEventListener("mouseleave", hide);
+    window.addEventListener("scroll", hide, { capture: true, passive: true });
+    anchor.classList.add("spook-fx", "spook-fx-whisper");
+    return () => {
+      anchor.removeEventListener("mouseenter", show);
+      anchor.removeEventListener("mouseleave", hide);
+      window.removeEventListener("scroll", hide, { capture: true });
+      anchor.classList.remove("spook-fx", "spook-fx-whisper");
+      hide();
+    };
   }
 
   const catalog = [
@@ -209,6 +299,48 @@
         return root;
       },
     },
+    {
+      id: "possessed_shake",
+      description: "the element itself trembles every few seconds, as if something is inside it (good for buttons, headings, images)",
+      positions: ["possess"],
+      needsText: false,
+      possess: possessWithClass("spook-fx-shake"),
+    },
+    {
+      id: "crooked_hang",
+      description: "the element itself hangs crooked from one nail and slowly sways (good for images, headers, navigation, footers)",
+      positions: ["possess"],
+      needsText: false,
+      possess: possessWithClass("spook-fx-hang"),
+    },
+    {
+      id: "flicker_out",
+      description: "the element itself flickers like a dying light bulb (good for headers, navigation, images)",
+      positions: ["possess"],
+      needsText: false,
+      possess: possessWithClass("spook-fx-flicker"),
+    },
+    {
+      id: "bleeding_text",
+      description: "the element's own text glows and bleeds red (good for big headings)",
+      positions: ["possess"],
+      needsText: false,
+      possess: possessWithClass("spook-fx-bleed"),
+    },
+    {
+      id: "haunted_letters",
+      description: "a few letters of the element's own text come loose, wobble and drop (good for short headings and buttons, not images)",
+      positions: ["possess"],
+      needsText: false,
+      possess: hauntLetters,
+    },
+    {
+      id: "hover_whisper",
+      description: "when the reader hovers over the element, a creepy line about it appears just below it (good for links, buttons, images, paragraphs)",
+      positions: ["possess"],
+      needsText: true,
+      possess: whisperOnHover,
+    },
   ];
 
   const byId = Object.fromEntries(catalog.map((s) => [s.id, s]));
@@ -256,16 +388,16 @@
 
   function suggestSpook(tag) {
     const fits = {
-      h1: ["blood_drip", "jack_o_lantern", "creepy_caption", "bat_swarm"],
-      h2: ["jack_o_lantern", "spider_drop", "blood_drip", "ghost"],
-      h3: ["jack_o_lantern", "spider_drop", "ghost"],
-      img: ["glowing_eyes", "cobweb", "creepy_caption", "ghost"],
-      p: ["ghost", "spider_drop", "creepy_caption", "bat_swarm"],
-      nav: ["cobweb", "bat_swarm"],
-      header: ["cobweb", "bat_swarm", "spider_drop"],
-      footer: ["tombstone", "cobweb"],
-      article: ["cobweb", "ghost", "glowing_eyes"],
-      button: ["jack_o_lantern", "cobweb"],
+      h1: ["blood_drip", "jack_o_lantern", "creepy_caption", "bat_swarm", "bleeding_text", "haunted_letters"],
+      h2: ["jack_o_lantern", "spider_drop", "blood_drip", "ghost", "haunted_letters", "possessed_shake"],
+      h3: ["jack_o_lantern", "spider_drop", "ghost", "bleeding_text", "haunted_letters"],
+      img: ["glowing_eyes", "cobweb", "creepy_caption", "ghost", "crooked_hang", "flicker_out", "possessed_shake"],
+      p: ["ghost", "spider_drop", "creepy_caption", "bat_swarm", "hover_whisper"],
+      nav: ["cobweb", "bat_swarm", "flicker_out"],
+      header: ["cobweb", "bat_swarm", "spider_drop", "flicker_out", "crooked_hang"],
+      footer: ["tombstone", "cobweb", "crooked_hang"],
+      article: ["cobweb", "ghost", "glowing_eyes", "hover_whisper"],
+      button: ["jack_o_lantern", "cobweb", "possessed_shake", "haunted_letters", "hover_whisper"],
     };
     return byId[pick(fits[tag] || catalog.map((s) => s.id))];
   }

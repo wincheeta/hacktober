@@ -35,6 +35,7 @@
   let reserved = 0;
   let maxBottom = 0;
   let overlays = []; // { box, anchor }
+  let possessions = []; // undo functions for spooks that changed page elements
   let layer = null;
   let io = null;
   let animIo = null;
@@ -202,6 +203,15 @@
     const tag = anchor.tagName.toLowerCase();
     const rect = anchor.getBoundingClientRect();
     let position = p.position;
+
+    if (position === "possess") {
+      const undo = spook.possess ? spook.possess(anchor, p.text) : null;
+      if (!undo) return; // e.g. haunted_letters on an image
+      possessions.push(undo);
+      anchor.dataset.spookDone = spook.id;
+      placed++;
+      return;
+    }
 
     // Never shift content the reader can see: in-flow insertion is only
     // allowed for anchors still below the viewport.
@@ -525,6 +535,8 @@
     pending = [];
     addedRoots = [];
     placed = reserved = maxBottom = observedCount = 0;
+    possessions.forEach((undo) => undo());
+    possessions = [];
     document.querySelectorAll(".spook-root").forEach((n) => n.remove());
     if (layer) layer.remove();
     layer = null;
