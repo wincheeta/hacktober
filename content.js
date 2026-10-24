@@ -237,11 +237,25 @@
 
   // ---------- components (spooky-components/components.js) ----------
 
-  // Per-type levels from config.js, scaled by the popup slider (5 = as written).
-  const CONFIG = typeof SPOOKY_CONFIG !== "undefined" ? SPOOKY_CONFIG : {};
-  const JUMPSCARE = { minDelayMs: 8000, cooldownMs: 120000, durationMs: 1200, ...CONFIG.jumpscare };
+  // Per-type levels from config.js, overridden by the popup's tuning sliders,
+  // then scaled by the master intensity slider (5 = as written).
+  const BASE_CONFIG = typeof SPOOKY_CONFIG !== "undefined" ? SPOOKY_CONFIG : {};
+  let CONFIG = BASE_CONFIG;
+  let JUMPSCARE = null;
+  applyTuning(null);
   let jumpTimer = null;
   let jumpUnlisten = null;
+
+  function applyTuning(tuning) {
+    const t = tuning || {};
+    CONFIG = {
+      ...BASE_CONFIG,
+      ...t,
+      levels: { ...BASE_CONFIG.levels, ...t.levels },
+      jumpscare: { ...BASE_CONFIG.jumpscare, ...t.jumpscare },
+    };
+    JUMPSCARE = { minDelayMs: 8000, cooldownMs: 120000, durationMs: 1200, ...CONFIG.jumpscare };
+  }
 
   function level(name) {
     const base = CONFIG.levels && typeof CONFIG.levels[name] === "number" ? CONFIG.levels[name] : 5;
@@ -493,6 +507,9 @@
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== "sync") return;
     if (changes.intensity) settings.intensity = Number(changes.intensity.newValue) || 5;
+    if (changes.tuning) applyTuning(changes.tuning.newValue);
+    // Apply new levels now, not just to spooks placed later.
+    if ((changes.intensity || changes.tuning) && !changes.enabled) reset();
     if (changes.enabled) {
       settings.enabled = changes.enabled.newValue !== false;
       applyEnabled();
@@ -504,11 +521,12 @@
   });
 
   chrome.storage.sync
-    .get({ enabled: true, intensity: 5 })
-    .catch(() => ({ enabled: true, intensity: 5 }))
+    .get({ enabled: true, intensity: 5, tuning: null })
+    .catch(() => ({ enabled: true, intensity: 5, tuning: null }))
     .then((s) => {
       settings.enabled = s.enabled !== false;
       settings.intensity = Number(s.intensity) || 5;
+      applyTuning(s.tuning);
       applyEnabled();
     });
 })();

@@ -54,6 +54,7 @@ Browse normally. Click the toolbar icon to open the popup:
 | Spook every page | Turns the theme and spooks on or off instantly. |
 | Ollama model | Any model Ollama has installed. The list fills from `ollama list`. |
 | Intensity | Master volume for every kind of spook. At the middle position, the levels in `config.js` apply as written. |
+| Tuning | One slider per value in `config.js`: each kind of spook, max decorations and the jump-scare timings. |
 | Status | Whether Ollama is online, whether the model is loaded, and how many batches are queued for this tab. |
 | Re-spook this page | Clears the decorations and asks the model again. |
 
@@ -87,7 +88,9 @@ Answers are cached per element for the browser session, so revisiting a page sho
 
 ## Tuning
 
-Edit [spooky-components/config.js](spooky-components/config.js), then reload the extension. Each kind of spook has its own level from 0 (off) to 10:
+Open **Tuning** in the popup to change any of these with a slider while you browse. The page re-spooks as soon as you let go. Your slider values are saved in the browser, and **Reset to config.js** goes back to the file's values.
+
+The defaults live in [spooky-components/config.js](spooky-components/config.js); edit it and reload the extension to change them. Each kind of spook has its own level from 0 (off) to 10:
 
 | Level | Controls |
 |---|---|
