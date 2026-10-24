@@ -203,6 +203,10 @@
   bottom: -18px;
   left: -11px;
   font-size: 22px;
+  /* Centred on the 1px thread; max-width beats page img rules. */
+  width: 22px;
+  height: 22px;
+  max-width: none;
   filter: drop-shadow(0 0 4px rgba(0, 0, 0, 0.9));
 }
 

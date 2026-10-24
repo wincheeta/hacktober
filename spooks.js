@@ -38,6 +38,21 @@
     return node;
   }
 
+  // <img> for an SVG in spooky-components/. If the extension was reloaded,
+  // getURL throws, so fall back to an emoji in the same class.
+  function assetImg(file, className, fallbackEmoji) {
+    let src;
+    try {
+      src = chrome.runtime.getURL(`spooky-components/${file}`);
+    } catch {
+      return el("span", className, fallbackEmoji);
+    }
+    const img = el("img", className);
+    img.src = src;
+    img.alt = "";
+    return img;
+  }
+
   // Cobweb anchored in the top-right corner of a 100x100 viewBox.
   function cobwebSvg() {
     const s = svg("svg", { viewBox: "0 0 100 100", class: "spook-web-svg", "aria-hidden": "true" });
@@ -171,18 +186,7 @@
         const root = el("span", "spook-ghost");
         // 1 in 100 ghosts is the cursed one.
         const file = Math.random() < 0.01 ? "cursedghost.svg" : "ghost.svg";
-        let src;
-        try {
-          src = chrome.runtime.getURL(`spooky-components/${file}`);
-        } catch {
-          // Extension reloaded: getURL throws, so fall back to the emoji.
-          root.appendChild(el("span", "spook-sprite", "👻"));
-          return root;
-        }
-        const img = el("img", "spook-sprite");
-        img.src = src;
-        img.alt = "";
-        root.appendChild(img);
+        root.appendChild(assetImg(file, "spook-sprite", "👻"));
         return root;
       },
     },
@@ -215,7 +219,7 @@
       render() {
         const root = el("span", "spook-spider");
         const thread = el("span", "spook-thread");
-        thread.appendChild(el("span", "spook-spider-body", "🕷️"));
+        thread.appendChild(assetImg("spider.svg", "spook-spider-body", "🕷️"));
         root.appendChild(thread);
         return root;
       },
