@@ -302,6 +302,16 @@
     box.style.height = `${rect.height}px`;
   }
 
+  // For boxes placed in the page next to their anchor rather than in the layer.
+  // Their containing block is whatever the page makes it, so measure where the
+  // box actually is and shift it by the difference.
+  function alignInPage(box, rect, now = box.getBoundingClientRect()) {
+    box.style.left = `${(parseFloat(box.style.left) || 0) + rect.left - now.left}px`;
+    box.style.top = `${(parseFloat(box.style.top) || 0) + rect.top - now.top}px`;
+    box.style.width = `${rect.width}px`;
+    box.style.height = `${rect.height}px`;
+  }
+
   function render(p, myGen) {
     if (myGen !== gen || !running) return;
     const anchor = anchors.get(p.anchor);
@@ -502,7 +512,10 @@
     return (base * settings.intensity) / 5;
   }
 
-  // Lay an `overlay` GIF over an image, at the GIF's placement. Images that get one aren't sent to the model.
+  // Lay an `overlay` GIF over an image, at the GIF's placement. This is purely
+  // local (no model call), and images that get one aren't sent to the model.
+  // <img> can't hold children, so the box goes right after the image in its
+  // parent: it scrolls, clips and stacks with the image instead of the layer.
   function coverWithGif(img) {
     const rect = img.getBoundingClientRect();
     const fits = assetsFor(SPOOKY_GIFS, "overlay").filter((g) => !g.minSize || rect.width >= g.minSize);
@@ -520,11 +533,12 @@
     box.className = `spook-root spook-box spook-gif spook-gif--${placement}`;
     box.dataset.spookGif = entry.id;
     box.style.setProperty("--spook-gif-size", `${(entry.size || 0.4) * 100}%`);
+    box.setAttribute("aria-hidden", "true");
     box.appendChild(gif);
-    const l = ensureLayer();
-    l.appendChild(box);
-    placeBox(box, rect, l.getBoundingClientRect());
-    overlays.push({ box, anchor: img });
+    box.style.left = box.style.top = "0px";
+    img.after(box);
+    alignInPage(box, rect);
+    overlays.push({ box, anchor: img, inPage: true });
     anchors.set(`g${anchorCounter++}`, img);
     img.dataset.spookDone = "gif";
     return true;
@@ -690,16 +704,20 @@
 
   function repositionAll() {
     repositionQueued = false;
-    if (!layer || !overlays.length) return;
+    if (!overlays.length) return;
     overlays = overlays.filter(({ box, anchor }) => {
-      if (anchor.isConnected) return true;
+      if (anchor.isConnected && box.isConnected) return true;
       box.remove();
       return false;
     });
     // Read everything first, then write, to avoid layout thrash.
-    const layerRect = layer.getBoundingClientRect();
+    const layerRect = layer ? layer.getBoundingClientRect() : null;
     const rects = overlays.map(({ anchor }) => anchor.getBoundingClientRect());
-    overlays.forEach(({ box }, i) => placeBox(box, rects[i], layerRect));
+    const nows = overlays.map(({ box, inPage }) => (inPage ? box.getBoundingClientRect() : null));
+    overlays.forEach(({ box, inPage }, i) => {
+      if (inPage) alignInPage(box, rects[i], nows[i]);
+      else if (layerRect) placeBox(box, rects[i], layerRect);
+    });
   }
 
   function queueReposition() {
@@ -733,9 +751,10 @@
   function unanchor(wrapper) {
     if (pinned.has(wrapper)) return;
     const l = ensureLayer();
-    if (wrapper.classList.contains("spook-box")) {
-      overlays = overlays.filter((o) => o.box !== wrapper);
-    } else {
+    overlays = overlays.filter((o) => o.box !== wrapper);
+    // Spooks in the page (inline ones, and GIFs next to their image) move into
+    // the layer so they can go anywhere without being clipped.
+    if (wrapper.parentElement !== l) {
       const rect = wrapper.getBoundingClientRect();
       // Keep em-sized sprites the size they were next to the anchor.
       wrapper.style.fontSize = getComputedStyle(wrapper).fontSize;

@@ -20,7 +20,7 @@
 
 const SPOOKY_GIFS = [
   { id: "freddy", path: "Pictures/fnaf-freddy.gif", use: "jumpscare" },
-  { id: "taco", path: "Pictures/skeletonchompontaco.gif", use: "overlay", placement: "center", size: 0.5, minSize: 200, weight: 2 },
+  { id: "taco", path: "Pictures/skeletonchompontaco.gif", use: "overlay", placement: "bottom-left", size: 0.45, minSize: 200, weight: 2 },
   { id: "dancer", path: "Pictures/dancing-skeleton.gif", use: "overlay", placement: "bottom-right", size: 0.45, weight: 2 },
   { id: "spider", path: "Pictures/skeletonSpider.gif", use: "overlay", placement: "hang-top", size: 0.3, weight: 1 },
   { id: "skull", path: "Pictures/skull.gif", use: "overlay", placement: "peek-corner", size: 0.3, weight: 1 },
