@@ -368,8 +368,82 @@
 }
 
 /* ---------- GIF over an image (spooky-components) ---------- */
+/* The box covers the image; the gif sits inside it according to its placement.
+   --spook-gif-size is the gif's width as a share of the image width. */
 .spook-gif img {
+  position: absolute !important;
   display: block !important;
   max-width: none !important;
+  width: var(--spook-gif-size, 40%) !important;
+  height: auto !important;
+  margin: 0 !important;
   filter: none !important;
+}
+
+.spook-gif--cover img {
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+}
+
+.spook-gif--center img {
+  left: 50% !important;
+  top: 50% !important;
+  transform: translate(-50%, -50%) !important;
+}
+
+.spook-gif--bottom-left img {
+  left: 0 !important;
+  bottom: 0 !important;
+}
+
+.spook-gif--bottom-right img {
+  right: 0 !important;
+  bottom: 0 !important;
+}
+
+/* Half out of the top-right corner, as if peeking round it. */
+.spook-gif--peek-corner img {
+  right: 0 !important;
+  top: 0 !important;
+  transform: translate(40%, -40%) rotate(12deg) !important;
+}
+
+/* Dangles from the top edge, bobbing on its thread. */
+.spook-gif--hang-top img {
+  left: 65% !important;
+  top: 0 !important;
+  animation: spook-gif-bob 3s ease-in-out infinite;
+}
+
+@keyframes spook-gif-bob {
+  0%, 100% { transform: translate(-50%, -20%); }
+  50% { transform: translate(-50%, 10%); }
+}
+
+/* ---------- jump-scare (spooky-components) ---------- */
+.spook-root.spook-jumpscare {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 2147483647 !important;
+  background: rgba(0, 0, 0, 0.85) !important;
+  animation: spook-jump var(--spook-jump-ms, 1200ms) ease-out both !important;
+}
+
+.spook-jumpscare img {
+  display: block !important;
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none !important;
+  object-fit: cover !important;
+  filter: none !important;
+}
+
+@keyframes spook-jump {
+  0% { opacity: 0; transform: scale(0.6); }
+  8% { opacity: 1; transform: scale(1.08); }
+  15% { transform: scale(1); }
+  80% { opacity: 1; }
+  100% { opacity: 0; }
 }

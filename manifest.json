@@ -22,7 +22,7 @@
     },
     {
       "matches": ["<all_urls>"],
-      "js": ["spooks.js", "spooky-components/components.js", "content.js"],
+      "js": ["spooks.js", "spooky-components/config.js", "spooky-components/components.js", "content.js"],
       "run_at": "document_idle"
     }
   ],
