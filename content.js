@@ -498,7 +498,8 @@
     return `pins:${location.href.split("#")[0]}`;
   }
 
-  // Detach a spook from its anchor so it can be moved freely.
+  // Detach a spook from its anchor so it can be moved freely. Component GIFs and
+  // decor have no meta, so they move but aren't saved.
   function unanchor(wrapper) {
     if (pinned.has(wrapper)) return;
     const l = ensureLayer();
@@ -508,6 +509,7 @@
       const rect = wrapper.getBoundingClientRect();
       // Keep em-sized sprites the size they were next to the anchor.
       wrapper.style.fontSize = getComputedStyle(wrapper).fontSize;
+      wrapper.style.right = "auto"; // right-hand corner cobweb
       l.appendChild(wrapper);
       placeBox(wrapper, rect, l.getBoundingClientRect());
     }
@@ -518,7 +520,7 @@
   function onPointerDown(e) {
     if (e.button !== 0 || !running) return;
     const wrapper = e.target.closest && e.target.closest(".spook-root");
-    if (!wrapper || !metaOf.has(wrapper)) return;
+    if (!wrapper || wrapper.classList.contains("spook-jumpscare")) return;
     e.preventDefault();
     e.stopPropagation();
     unanchor(wrapper);
