@@ -177,40 +177,40 @@
   }
 
   const catalog = [
-    {
-      id: "ghost",
-      description: "a translucent ghost drifting back and forth across the element",
-      positions: ["overlay"],
-      needsText: false,
-      render() {
-        const root = el("span", "spook-ghost");
-        // 1 in 100 ghosts is the cursed one.
-        const file = Math.random() < 0.01 ? "cursedghost.svg" : "ghost.svg";
-        root.appendChild(assetImg(file, "spook-sprite", "👻"));
-        return root;
-      },
-    },
-    {
-      id: "bat_swarm",
-      description: "a few bats bursting out of the element and flying away",
-      positions: ["overlay"],
-      needsText: false,
-      render() {
-        const root = el("span", "spook-bats");
-        const paths = [
-          [-140, -90], [120, -110], [-60, -150], [170, -40], [40, -170],
-        ];
-        paths.forEach(([dx, dy], i) => {
-          const bat = el("span", "spook-bat");
-          bat.style.setProperty("--dx", `${dx}px`);
-          bat.style.setProperty("--dy", `${dy}px`);
-          bat.style.animationDelay = `${i * 0.35}s`;
-          bat.appendChild(el("span", "spook-bat-wings", "🦇"));
-          root.appendChild(bat);
-        });
-        return root;
-      },
-    },
+    // {
+    //   id: "ghost",
+    //   description: "a translucent ghost drifting back and forth across the element",
+    //   positions: ["overlay"],
+    //   needsText: false,
+    //   render() {
+    //     const root = el("span", "spook-ghost");
+    //     // 1 in 100 ghosts is the cursed one.
+    //     const file = Math.random() < 0.01 ? "cursedghost.svg" : "ghost.svg";
+    //     root.appendChild(assetImg(file, "spook-sprite", "👻"));
+    //     return root;
+    //   },
+    // },
+    // {
+    //   id: "bat_swarm",
+    //   description: "a few bats bursting out of the element and flying away",
+    //   positions: ["overlay"],
+    //   needsText: false,
+    //   render() {
+    //     const root = el("span", "spook-bats");
+    //     const paths = [
+    //       [-140, -90], [120, -110], [-60, -150], [170, -40], [40, -170],
+    //     ];
+    //     paths.forEach(([dx, dy], i) => {
+    //       const bat = el("span", "spook-bat");
+    //       bat.style.setProperty("--dx", `${dx}px`);
+    //       bat.style.setProperty("--dy", `${dy}px`);
+    //       bat.style.animationDelay = `${i * 0.35}s`;
+    //       bat.appendChild(el("span", "spook-bat-wings", "🦇"));
+    //       root.appendChild(bat);
+    //     });
+    //     return root;
+    //   },
+    // },
     {
       id: "spider_drop",
       description: "a spider lowering itself on a silk thread from the top of the element",
@@ -235,17 +235,17 @@
         return root;
       },
     },
-    {
-      id: "jack_o_lantern",
-      description: "a flickering carved pumpkin next to the element (good for headings and buttons)",
-      positions: ["before", "after", "prepend", "append", "overlay"],
-      needsText: false,
-      render() {
-        const root = el("span", "spook-pumpkin");
-        root.appendChild(el("span", "spook-sprite", "🎃"));
-        return root;
-      },
-    },
+    // {
+    //   id: "jack_o_lantern",
+    //   description: "a flickering carved pumpkin next to the element (good for headings and buttons)",
+    //   positions: ["before", "after", "prepend", "append", "overlay"],
+    //   needsText: false,
+    //   render() {
+    //     const root = el("span", "spook-pumpkin");
+    //     root.appendChild(el("span", "spook-sprite", "🎃"));
+    //     return root;
+    //   },
+    // },
     {
       id: "glowing_eyes",
       description: "a pair of glowing orange eyes that blink, as if something is watching (good for images and dark areas)",
@@ -389,7 +389,8 @@
   // ---------- word swaps and heading rewrites ----------
 
   const MAX_SWAP_TEXT = 24;
-  const MAX_SWAPS = 10;
+  const MAX_SWAPS = 10; // new swaps per page
+  const MAX_SWAP_DICT = 50; // swaps kept across pages
   const MAX_REWRITES = 2;
   const HEADING_TAGS = new Set(["h1", "h2", "h3"]);
 
@@ -413,10 +414,11 @@
     return cleanText(value).slice(0, MAX_SWAP_TEXT);
   }
 
-  // `from` must be one of the page words we sent; `to` is short plain text.
+  // `from` must be one of the page words we sent (or any plain word when
+  // `words` is null); `to` is short plain text.
   function validateSwaps(raw, words, max) {
-    const allowed = words instanceof Set ? words : new Set(words);
-    const limit = Math.max(0, Math.min(MAX_SWAPS, max | 0));
+    const allowed = words === null ? null : words instanceof Set ? words : new Set(words);
+    const limit = Math.max(0, Math.min(MAX_SWAP_DICT, max | 0));
     const list = raw && Array.isArray(raw.swaps) ? raw.swaps : [];
     const out = [];
     const used = new Set();
@@ -425,11 +427,54 @@
       if (!s || typeof s !== "object") continue;
       const from = String(s.from || "").toLowerCase();
       const to = swapText(s.to);
-      if (!allowed.has(from) || used.has(from) || !to || to.toLowerCase() === from) continue;
+      // Words only: small models sometimes leak JSON punctuation into the string.
+      if (!/^\p{L}[\p{L}'’ -]*$/u.test(to)) continue;
+      if (allowed ? !allowed.has(from) : !/^[\p{L}'-]{3,20}$/u.test(from)) continue;
+      if (used.has(from) || to.toLowerCase() === from) continue;
       out.push({ from, to });
       used.add(from);
     }
     return out;
+  }
+
+  // Simple English plurals: cat/cats, box/boxes, church/churches, story/stories.
+  // Multi-word replacements inflect their last word ("lost soul" -> "lost souls").
+  function pluralOf(word) {
+    if (/(s|x|z|ch|sh)$/i.test(word)) return `${word}es`;
+    if (/[^aeiou]y$/i.test(word)) return `${word.slice(0, -1)}ies`;
+    return `${word}s`;
+  }
+
+  // The singular of a simple plural, or null if the word doesn't look plural.
+  // Leaves -ss, -us and -is words alone (glass, bonus, analysis).
+  function singularOf(word) {
+    if (word.length > 4 && /[^aeiou]ies$/i.test(word)) return `${word.slice(0, -3)}y`;
+    if (/(s|x|z|ch|sh)es$/i.test(word)) return word.slice(0, -2);
+    if (/[^su'’]s$/i.test(word) && !/is$/i.test(word)) return word.slice(0, -1);
+    return null;
+  }
+
+  // Every lowercase form a swap should match, mapped to its replacement: the
+  // word as given plus its singular or plural, with the replacement in the same
+  // number. Small models often answer a plural with a singular ("stories" ->
+  // "curse"), so a plural word always gets a plural replacement. When the model
+  // swapped both forms of a word itself, its own choices win.
+  function swapForms(swaps) {
+    const forms = new Map();
+    const derived = [];
+    for (const { from, to } of swaps) {
+      const single = singularOf(from);
+      if (single) {
+        const toSingle = singularOf(to) || to;
+        forms.set(from, toSingle === to ? pluralOf(to) : to);
+        derived.push([single, toSingle]);
+      } else {
+        forms.set(from, to);
+        derived.push([pluralOf(from), pluralOf(to)]);
+      }
+    }
+    for (const [form, to] of derived) if (!forms.has(form)) forms.set(form, to);
+    return forms;
   }
 
   function localSwaps(words, max) {
@@ -463,6 +508,7 @@
     MAX_PER_BATCH,
     MAX_SWAP_TEXT,
     MAX_SWAPS,
+    MAX_SWAP_DICT,
     MAX_REWRITES,
     HEADING_TAGS,
     validate,
@@ -470,6 +516,7 @@
     cleanText,
     validateSwaps,
     localSwaps,
+    swapForms,
     validateRewrites,
   };
 })(typeof self !== "undefined" ? self : globalThis);

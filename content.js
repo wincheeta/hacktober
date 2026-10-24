@@ -16,7 +16,7 @@
   const FLUSH_QUIET_MS = 300;
   const LOOKAHEAD = "0px 0px 150% 0px";
   const MAX_CANDIDATES = 1500;
-  const REPLY_TIMEOUT_MS = 45000; // > background stale window + request timeout
+  const REPLY_TIMEOUT_MS = 65000; // > background stale window + request timeout
   // Text we never rewrite: code, form fields, editors and our own spooks.
   const NO_SWAP = "script, style, noscript, code, pre, kbd, samp, textarea, input, select, option, svg, [contenteditable=''], [contenteditable='true'], .spook-root, .spook-letters, #spook-layer";
   const MAX_TEXT_NODES = 3000;
@@ -57,7 +57,8 @@
   let originals = new Map(); // text node -> { text: before we touched it, ours: what we set }
   let rewritten = []; // { el, title } headings we rewrote, to restore their title
   let swapRegex = null;
-  let swapMap = null; // lowercase word -> replacement
+  let swapMap = null; // lowercase word -> replacement, as chosen (shown in the popup)
+  let swapFormMap = null; // every form matched, including simple plurals/singulars
   let metaOf = new WeakMap(); // wrapper -> { sig, spook, text, tag, kind }
   let pinned = new Map(); // wrapper -> meta, for spooks the user has dragged
   let pinnedSigs = new Set(); // anchor signatures whose spook was dragged away
@@ -194,8 +195,23 @@
     const text =
       tag === "img"
         ? collapse(node.alt || node.title || "image")
-        : collapse(node.textContent);
+        : collapse(originalText(node));
     return { id, tag, text: text.slice(0, 80) };
+  }
+
+  // The element's text as the page wrote it, without our word swaps, rewrites
+  // or in-flow spooks, so cache keys and pinned-spook signatures stay the same
+  // on every visit.
+  function originalText(node) {
+    let text = "";
+    const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+    for (let n; (n = walker.nextNode()); ) {
+      if (n.parentElement && n.parentElement.closest(".spook-root")) continue;
+      const saved = originals.get(n);
+      text += saved ? saved.text : n.nodeValue;
+      if (text.length > 400) break; // describe() keeps 80 characters
+    }
+    return text;
   }
 
   function onIntersect(entries) {
@@ -233,6 +249,7 @@
     clearTimeout(flushTimer);
     flushTimer = null;
     if (!running || !pending.length) return;
+    if (document.hidden) return whenVisible(flush);
     const batch = pending.splice(0, BATCH_MAX);
     if (pending.length) flushTimer = setTimeout(flush, FLUSH_QUIET_MS);
     const budget = Math.min(S.MAX_PER_BATCH, budgetLeft());
@@ -264,6 +281,11 @@
     });
     if (myGen !== gen || !running) return;
     reserved -= budget;
+    if (document.hidden && !(reply && reply.status === "ok")) {
+      // Cancelled because the tab was hidden: ask again once it's shown.
+      pending.unshift(...batch);
+      return whenVisible(flush);
+    }
 
     const ids = batch.map((a) => a.id);
     let placements;
@@ -384,14 +406,14 @@
   }
 
   // Walk text nodes in idle chunks, calling fn on each eligible one.
-  function walkText(rootNode, myGen, fn, done) {
+  function walkText(rootNode, myGen, fn, done, limit = Infinity) {
     if (!rootNode || !rootNode.isConnected) return;
     const walker = document.createTreeWalker(rootNode, NodeFilter.SHOW_TEXT);
     let count = 0;
     const step = (deadline) => {
       if (myGen !== gen || !running) return;
       let node;
-      while ((node = walker.nextNode()) && count < MAX_TEXT_NODES) {
+      while (count < limit && (node = walker.nextNode())) {
         count++;
         if (node.nodeValue.trim() && swappable(node)) fn(node);
         if (count % 100 === 0 && deadline.timeRemaining() < 2) return idle(step);
@@ -416,20 +438,35 @@
         }
       },
       () => {
-        const words = [...freq].sort((a, b) => b[1] - a[1]).slice(0, 40).map(([w]) => w);
+        // Counts go along so the background can tell which kept swaps are common.
+        const words = [...freq].sort((a, b) => b[1] - a[1]).slice(0, 300);
         if (words.length) requestSwaps(words, count, myGen);
-      }
+      },
+      MAX_TEXT_NODES
     );
   }
 
+  // The reply holds every swap kept across pages, not just this page's new ones.
   async function requestSwaps(words, count, myGen) {
+    const retry = () => myGen === gen && running && requestSwaps(words, count, myGen);
+    if (document.hidden) return whenVisible(retry);
     const reply = await ask({ type: "spook-words", url: location.href, title: document.title.slice(0, 100), words, count });
     if (myGen !== gen || !running) return;
-    const swaps =
-      reply && reply.status === "ok" ? S.validateSwaps({ swaps: reply.swaps }, words, count) : S.localSwaps(words, count);
+    if (document.hidden && !(reply && reply.status === "ok")) return whenVisible(retry);
+    const kept = S.validateSwaps({ swaps: reply && reply.swaps }, null, S.MAX_SWAP_DICT);
+    let swaps = kept;
+    if (!reply || reply.status !== "ok") {
+      const have = new Set(kept.map((s) => s.from));
+      const top = words.slice(0, 40).map(([w]) => w).filter((w) => !have.has(w));
+      swaps = [...kept, ...S.localSwaps(top, count)];
+    }
     if (!swaps.length) return;
     swapMap = new Map(swaps.map((s) => [s.from, s.to]));
-    const escaped = swaps.map((s) => s.from.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+    swapFormMap = S.swapForms(swaps);
+    // Longest first so "stories" is tried before "story".
+    const escaped = [...swapFormMap.keys()]
+      .sort((a, b) => b.length - a.length)
+      .map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
     swapRegex = new RegExp(`(?<![\\p{L}])(${escaped.join("|")})(?![\\p{L}])`, "giu");
     applySwaps(document.body, myGen);
   }
@@ -447,7 +484,7 @@
       swapRegex.lastIndex = 0;
       if (!swapRegex.test(before)) return;
       swapRegex.lastIndex = 0;
-      node.nodeValue = before.replace(swapRegex, (m) => matchCase(m, swapMap.get(m.toLowerCase())));
+      node.nodeValue = before.replace(swapRegex, (m) => matchCase(m, swapFormMap.get(m.toLowerCase())));
       originals.set(node, { text: before, ours: node.nodeValue });
     });
   }
@@ -482,7 +519,7 @@
     }
     originals = new Map();
     rewritten = [];
-    swapRegex = swapMap = null;
+    swapRegex = swapMap = swapFormMap = null;
   }
 
   // ---------- components (spooky-components/components.js) ----------
@@ -544,15 +581,25 @@
     return true;
   }
 
-  // Scatter `scatter` decor over the page with placeRandomly, plus the viewport-fixed `corner` cobwebs.
+  // Scatter `overlay` GIFs over the page with placeRandomly, plus the viewport-fixed `corner` cobwebs.
   function scatterDecor(myGen) {
     if (myGen !== gen || !running || !document.body) return;
     const vh = window.innerHeight || 800;
     const pageHeight = document.documentElement.scrollHeight;
-    const scatter = assetsFor(SPOOKY_DECOR, "scatter");
+    const scatter = assetsFor(SPOOKY_GIFS, "overlay");
     const maxDecor = CONFIG.maxDecor ?? 12;
     const count = Math.min(maxDecor, Math.ceil((level("decor") * pageHeight) / (3 * vh) / 2));
-    if (scatter.length) for (let i = 0; i < count; i++) placeRandomly(createSpookyDecor(pickWeighted(scatter)));
+    if (scatter.length) {
+      for (let i = 0; i < count; i++) {
+        const entry = pickWeighted(scatter);
+        try {
+          // `size` is a fraction of an image's width; on the page it scales a ~300px box.
+          placeRandomly(createSpookyGif(entry, Math.round((entry.size || 0.4) * 300)));
+        } catch {
+          return; // extension reloaded: getURL throws
+        }
+      }
+    }
 
     showSkeletor(myGen);
 
@@ -601,6 +648,7 @@
   function showSkeletor(myGen) {
     if (myGen !== gen || !running || !document.body) return;
     if (document.getElementById("spook-skeletor")) return;
+    if (Math.random() >= level("skeletor") / 10) return;
 
     let gifUrl;
     try {
@@ -919,8 +967,43 @@
 
   // ---------- lifecycle ----------
 
+  // ---------- visibility ----------
+  // Only the tab being looked at is spooked and talks to the model. Tabs opened
+  // in the background wait until they're shown, and a tab hidden mid-batch
+  // cancels its model work and picks it up again when it's shown.
+
+  let onShow = [];
+  function whenVisible(fn) {
+    if (!document.hidden) fn();
+    else if (!onShow.includes(fn)) onShow.push(fn);
+  }
+
+  // Free the model for other tabs; replies we were waiting on come back as
+  // cancelled and are retried or ignored by whoever asked.
+  function cancelModelWork() {
+    try {
+      chrome.runtime.sendMessage({ type: "spook-cancel" }).catch(() => {});
+    } catch {
+      // extension reloaded: nothing to cancel
+    }
+  }
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) {
+      if (running) cancelModelWork();
+      return;
+    }
+    const fns = onShow;
+    onShow = [];
+    fns.forEach((fn) => fn());
+  });
+
+  function startWhenIdle() {
+    idle(start);
+  }
+
   function start() {
-    if (running || !document.body) return;
+    if (running || !settings.enabled || !document.body) return;
     running = true;
     io = new IntersectionObserver(onIntersect, { rootMargin: LOOKAHEAD });
     animIo = new IntersectionObserver(
@@ -944,30 +1027,19 @@
     grepAndRemoveMoodle(document.body);
     restorePins(myGen).finally(() => {
       if (myGen !== gen) return;
-      {
-        idle(() => {
-        {
-          scanRoot(document.body);
+      idle(() => {
+        scanRoot(document.body);
         idle(() => scatterDecor(myGen));
         idle(() => collectWords(myGen));
-      };
-          idle(() => scatterDecor(myGen));
-          idle(() => collectWords(myGen));
-        });
-        maybeJumpscare(myGen);
-      }
+      });
+      maybeJumpscare(myGen);
     });
-    maybeJumpscare(myGen);
   }
 
   function clearSpooks() {
     gen++;
     // Free the model for fresh batches instead of finishing ones we'll ignore.
-    try {
-      chrome.runtime.sendMessage({ type: "spook-cancel" }).catch(() => {});
-    } catch {
-      // extension reloaded: nothing to cancel
-    }
+    cancelModelWork();
     clearTimeout(flushTimer);
     clearTimeout(mutationTimer);
     cancelJumpscare();
@@ -1019,7 +1091,7 @@
 
   function applyEnabled() {
     document.documentElement.classList.toggle("spookify-off", !settings.enabled);
-    if (settings.enabled) idle(start);
+    if (settings.enabled) whenVisible(startWhenIdle);
     else stop();
     applyDragMode();
   }
@@ -1029,7 +1101,8 @@
     if (changes.intensity) settings.intensity = Number(changes.intensity.newValue) || 5;
     if (changes.tuning) applyTuning(changes.tuning.newValue);
     // Apply new levels now, not just to spooks placed later.
-    if ((changes.intensity || changes.tuning) && !changes.enabled) reset();
+    // Background tabs re-spook when they're next shown.
+    if ((changes.intensity || changes.tuning) && !changes.enabled) whenVisible(reset);
     if (changes.dragMode) {
       settings.dragMode = changes.dragMode.newValue === true;
       applyDragMode();
