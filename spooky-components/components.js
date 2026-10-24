@@ -2,7 +2,7 @@
 // Loaded as a content script before content.js, so everything here is a global.
 //
 // - SPOOKY_GIFS:  gif descriptors. `use` says which system shows the gif:
-//                   overlay   - laid over a page image, at `placement`
+//                   overlay   - laid over a page image, at `placement`, and also scattered over the page
 //                   jumpscare - flashed full screen, rarely
 //                 placement: cover | center | bottom-left | bottom-right | peek-corner | hang-top
 //                 size:      fraction of the image width (all placements but cover)
@@ -39,49 +39,6 @@ const SPOOKY_GIFS = [
 ];
 
 const SPOOKY_DECOR = {
-  ghost: {
-    use: "scatter",
-    html: `
-    <div data-spooky="ghost" style="width:100px;height:120px;pointer-events:none;opacity:0.85;">
-      <svg viewBox="0 0 100 120" width="100%" height="100%">
-        <path d="M50 5C25 5 10 25 10 50v65l13-10 13 10 14-10 14 10 13-10 13 10V50C90 25 75 5 50 5z"
-              fill="#f5f5f5" stroke="#ccc" stroke-width="2"/>
-        <ellipse cx="37" cy="45" rx="6" ry="9" fill="#222"/>
-        <ellipse cx="63" cy="45" rx="6" ry="9" fill="#222"/>
-        <ellipse cx="50" cy="72" rx="8" ry="11" fill="#222"/>
-      </svg>
-    </div>`,
-  },
-
-  bat: {
-    use: "scatter",
-    html: `
-    <div data-spooky="bat" style="width:120px;height:60px;pointer-events:none;">
-      <svg viewBox="0 0 120 60" width="100%" height="100%">
-        <path d="M60 18c-4 0-6 3-7 6-6-8-18-14-32-12 6 4 8 10 6 16-6-3-14-2-20 2 10 2 17 9 20 18 5-6 13-8 20-6 4 2 8 5 13 10 5-5 9-8 13-10 7-2 15 0 20 6 3-9 10-16 20-18-6-4-14-5-20-2-2-6 0-12 6-16-14-2-26 4-32 12-1-3-3-6-7-6z
-                 M54 22l-2-10 5 6z M66 22l2-10-5 6z"
-              fill="#111"/>
-        <circle cx="56" cy="24" r="1.5" fill="#e33"/>
-        <circle cx="64" cy="24" r="1.5" fill="#e33"/>
-      </svg>
-    </div>`,
-  },
-
-  pumpkin: {
-    use: "scatter",
-    html: `
-    <div data-spooky="pumpkin" style="width:100px;height:90px;pointer-events:none;">
-      <svg viewBox="0 0 100 90" width="100%" height="100%">
-        <path d="M48 18c0-8 2-13 8-16l3 3c-4 3-5 7-5 13z" fill="#3a5f1e"/>
-        <ellipse cx="30" cy="52" rx="22" ry="32" fill="#e8741c"/>
-        <ellipse cx="70" cy="52" rx="22" ry="32" fill="#e8741c"/>
-        <ellipse cx="50" cy="52" rx="24" ry="34" fill="#f28a2e"/>
-        <path d="M30 40l10 10H20z M70 40l10 10H60z" fill="#2b1500"/>
-        <path d="M26 62h48l-6 12-6-5-6 6-6-6-6 6-6-6-6 5z" fill="#2b1500"/>
-      </svg>
-    </div>`,
-  },
-
   // Sits in the top-left corner of the viewport; flip with transform:scaleX(-1) for the other side.
   cobweb: {
     use: "corner",

@@ -177,40 +177,40 @@
   }
 
   const catalog = [
-    {
-      id: "ghost",
-      description: "a translucent ghost drifting back and forth across the element",
-      positions: ["overlay"],
-      needsText: false,
-      render() {
-        const root = el("span", "spook-ghost");
-        // 1 in 100 ghosts is the cursed one.
-        const file = Math.random() < 0.01 ? "cursedghost.svg" : "ghost.svg";
-        root.appendChild(assetImg(file, "spook-sprite", "👻"));
-        return root;
-      },
-    },
-    {
-      id: "bat_swarm",
-      description: "a few bats bursting out of the element and flying away",
-      positions: ["overlay"],
-      needsText: false,
-      render() {
-        const root = el("span", "spook-bats");
-        const paths = [
-          [-140, -90], [120, -110], [-60, -150], [170, -40], [40, -170],
-        ];
-        paths.forEach(([dx, dy], i) => {
-          const bat = el("span", "spook-bat");
-          bat.style.setProperty("--dx", `${dx}px`);
-          bat.style.setProperty("--dy", `${dy}px`);
-          bat.style.animationDelay = `${i * 0.35}s`;
-          bat.appendChild(el("span", "spook-bat-wings", "🦇"));
-          root.appendChild(bat);
-        });
-        return root;
-      },
-    },
+    // {
+    //   id: "ghost",
+    //   description: "a translucent ghost drifting back and forth across the element",
+    //   positions: ["overlay"],
+    //   needsText: false,
+    //   render() {
+    //     const root = el("span", "spook-ghost");
+    //     // 1 in 100 ghosts is the cursed one.
+    //     const file = Math.random() < 0.01 ? "cursedghost.svg" : "ghost.svg";
+    //     root.appendChild(assetImg(file, "spook-sprite", "👻"));
+    //     return root;
+    //   },
+    // },
+    // {
+    //   id: "bat_swarm",
+    //   description: "a few bats bursting out of the element and flying away",
+    //   positions: ["overlay"],
+    //   needsText: false,
+    //   render() {
+    //     const root = el("span", "spook-bats");
+    //     const paths = [
+    //       [-140, -90], [120, -110], [-60, -150], [170, -40], [40, -170],
+    //     ];
+    //     paths.forEach(([dx, dy], i) => {
+    //       const bat = el("span", "spook-bat");
+    //       bat.style.setProperty("--dx", `${dx}px`);
+    //       bat.style.setProperty("--dy", `${dy}px`);
+    //       bat.style.animationDelay = `${i * 0.35}s`;
+    //       bat.appendChild(el("span", "spook-bat-wings", "🦇"));
+    //       root.appendChild(bat);
+    //     });
+    //     return root;
+    //   },
+    // },
     {
       id: "spider_drop",
       description: "a spider lowering itself on a silk thread from the top of the element",
@@ -235,17 +235,17 @@
         return root;
       },
     },
-    {
-      id: "jack_o_lantern",
-      description: "a flickering carved pumpkin next to the element (good for headings and buttons)",
-      positions: ["before", "after", "prepend", "append", "overlay"],
-      needsText: false,
-      render() {
-        const root = el("span", "spook-pumpkin");
-        root.appendChild(el("span", "spook-sprite", "🎃"));
-        return root;
-      },
-    },
+    // {
+    //   id: "jack_o_lantern",
+    //   description: "a flickering carved pumpkin next to the element (good for headings and buttons)",
+    //   positions: ["before", "after", "prepend", "append", "overlay"],
+    //   needsText: false,
+    //   render() {
+    //     const root = el("span", "spook-pumpkin");
+    //     root.appendChild(el("span", "spook-sprite", "🎃"));
+    //     return root;
+    //   },
+    // },
     {
       id: "glowing_eyes",
       description: "a pair of glowing orange eyes that blink, as if something is watching (good for images and dark areas)",
@@ -389,7 +389,8 @@
   // ---------- word swaps and heading rewrites ----------
 
   const MAX_SWAP_TEXT = 24;
-  const MAX_SWAPS = 10;
+  const MAX_SWAPS = 10; // new swaps per page
+  const MAX_SWAP_DICT = 50; // swaps kept across pages
   const MAX_REWRITES = 2;
   const HEADING_TAGS = new Set(["h1", "h2", "h3"]);
 
@@ -413,10 +414,11 @@
     return cleanText(value).slice(0, MAX_SWAP_TEXT);
   }
 
-  // `from` must be one of the page words we sent; `to` is short plain text.
+  // `from` must be one of the page words we sent (or any plain word when
+  // `words` is null); `to` is short plain text.
   function validateSwaps(raw, words, max) {
-    const allowed = words instanceof Set ? words : new Set(words);
-    const limit = Math.max(0, Math.min(MAX_SWAPS, max | 0));
+    const allowed = words === null ? null : words instanceof Set ? words : new Set(words);
+    const limit = Math.max(0, Math.min(MAX_SWAP_DICT, max | 0));
     const list = raw && Array.isArray(raw.swaps) ? raw.swaps : [];
     const out = [];
     const used = new Set();
@@ -427,7 +429,8 @@
       const to = swapText(s.to);
       // Words only: small models sometimes leak JSON punctuation into the string.
       if (!/^\p{L}[\p{L}'’ -]*$/u.test(to)) continue;
-      if (!allowed.has(from) || used.has(from) || to.toLowerCase() === from) continue;
+      if (allowed ? !allowed.has(from) : !/^[\p{L}'-]{3,20}$/u.test(from)) continue;
+      if (used.has(from) || to.toLowerCase() === from) continue;
       out.push({ from, to });
       used.add(from);
     }
@@ -465,6 +468,7 @@
     MAX_PER_BATCH,
     MAX_SWAP_TEXT,
     MAX_SWAPS,
+    MAX_SWAP_DICT,
     MAX_REWRITES,
     HEADING_TAGS,
     validate,

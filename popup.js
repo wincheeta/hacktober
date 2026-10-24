@@ -20,7 +20,7 @@ const TUNING = [
   { path: ["levels", "wordSwaps"], label: "Word swaps (Ollama)", min: 0, max: 10, step: 1 },
   { path: ["levels", "headingRewrites"], label: "Heading rewrites (Ollama)", min: 0, max: 10, step: 1 },
   { path: ["levels", "gifOverlays"], label: "GIFs over images", min: 0, max: 10, step: 1 },
-  { path: ["levels", "decor"], label: "Scattered decorations", min: 0, max: 10, step: 1 },
+  { path: ["levels", "decor"], label: "Scattered GIFs", min: 0, max: 10, step: 1 },
   { path: ["levels", "cornerCobwebs"], label: "Corner cobwebs", min: 0, max: 10, step: 1 },
   { path: ["levels", "jumpscare"], label: "Jump-scare chance", min: 0, max: 10, step: 1 },
   { path: ["levels", "skeletor"], label: "Skeletor facts", min: 0, max: 10, step: 1 },

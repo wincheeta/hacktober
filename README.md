@@ -4,9 +4,9 @@ A browser extension (Manifest V3) that makes every web page spooky.
 
 - **Instant theme.** Every page turns dark with an orange and black palette at first paint. This is plain CSS, so it never slows the page down.
 - **Model-placed spooks.** A local [Ollama](https://ollama.com) model looks at small batches of page elements near where you're reading. It decides which pre-defined decoration goes where: ghosts, bats, spiders, cobwebs, pumpkins, glowing eyes, creepy captions and blood drips.
-- **Haunted words.** The model picks up to 10 common words on the page and swaps them for spooky ones everywhere they appear ("cart" becomes "coffin", "team" becomes "coven"). It also rewrites a few headings into spooky versions; hover a rewritten heading to see the original. Turning Spookify off restores the original text.
+- **Haunted words.** The model picks up to 10 common words on each page and swaps them for spooky ones everywhere they appear ("cart" becomes "coffin", "team" becomes "coven"). Swaps carry over to later pages, up to 50 in all; once that fills up, each new page's swaps replace the ones whose words have come up least often on the pages you visited. It also rewrites a few headings into spooky versions; hover a rewritten heading to see the original. Turning Spookify off restores the original text.
 - **Never blocks the page.** The page loads exactly as it would without the extension. Spooks fade in a few seconds later, and more appear as you scroll.
-- **GIFs and decorations.** Some images get a spooky GIF laid over them as you scroll, each in its own spot: covering the image, peeking from a corner, or dangling from the top. SVG ghosts, bats and pumpkins are scattered across the page, with cobwebs in the top corners. Very occasionally a jump-scare flashes up. These are placed at random locally, without the model.
+- **GIFs and decorations.** Some images get a spooky GIF laid over them as you scroll, each in its own spot: covering the image, peeking from a corner, or dangling from the top. A few of the same GIFs are scattered across the page too, with cobwebs in the top corners. Very occasionally a jump-scare flashes up. These are placed at random locally, without the model.
 - **Works offline.** If Ollama isn't running, spooks are placed at random instead.
 
 The model only picks element ids, spook ids and positions, plus a short line of text for captions. The extension validates that and builds the decorations itself, so the model never injects markup into the page.
@@ -84,7 +84,7 @@ The flow for a page:
 5. Ollama gets a short prompt and a JSON schema with one variant per spook, so it must reply with valid placements. The prompt asks for compact JSON with one-letter keys because output tokens dominate the response time on CPU, and it lists the spooks the tab already shows so small models vary their picks. Each request times out after 40 seconds and the model is kept loaded for 30 minutes.
 6. The page validates the reply and renders the spooks. Anything already on screen is drawn as an overlay, so text you're reading never jumps. Only elements still below the screen get decorations inserted into the page flow.
 7. A `MutationObserver` and URL check pick up infinite scroll and single-page-app navigation.
-8. Once per page, the 40 most common words on it go to the model in a separate request, which runs before any queued batch. The schema only lets the model pick words from that list. The swaps are applied by changing text node values, never markup, and new content gets them too. Headings are rewritten from the same batch request as the spooks, and only when their text is in a single text node.
+8. Once per page, the 40 most common words on it that have no swap yet go to the model in a separate request, which runs before any queued batch. The schema only lets the model pick words from that list. The background keeps a dictionary of up to 50 swaps in `storage.local` with a running count of how often each word appeared on visited pages; new swaps evict the lowest counts, and every page gets the whole dictionary. The swaps are applied by changing text node values, never markup, and new content gets them too. Headings are rewritten from the same batch request as the spooks, and only when their text is in a single text node.
 
 Answers are cached per element for the browser session, so revisiting a page shows the same spooks without asking the model again.
 
@@ -97,10 +97,10 @@ The defaults live in [spooky-components/config.js](spooky-components/config.js);
 | Level | Controls |
 |---|---|
 | `modelSpooks` | Spooks placed by Ollama, about this many per three screens. |
-| `wordSwaps` | Words Ollama swaps for spooky ones on each page: level × 1.6, up to 10. Offline, a built-in word list is used. |
+| `wordSwaps` | New words Ollama swaps for spooky ones on each page: level × 1.6, up to 10 (the kept swaps across pages cap at 50). Offline, a built-in word list is used. |
 | `headingRewrites` | Headings Ollama rewrites per batch: level ÷ 4 rounded, up to 2. |
 | `gifOverlays` | Chance that an image gets a GIF: level ÷ 10. |
-| `decor` | Scattered SVG decorations, about half this many per three screens, up to `maxDecor`. |
+| `decor` | GIFs scattered over the page, about half this many per three screens, up to `maxDecor`. |
 | `cornerCobwebs` | 0 hides the corner cobwebs. |
 | `jumpscare` | Chance of one jump-scare per page: (level ÷ 10)². 3 is about 9%, 10 is every page. |
 | `skeletor` | Chance per page of Skeletor and his fact bubble: level ÷ 10. |
@@ -117,7 +117,7 @@ Drop the GIF in `Pictures/` and add one line to `SPOOKY_GIFS` in [components.js]
 
 | Attribute | Meaning |
 |---|---|
-| `use` | `overlay` goes over page images. `jumpscare` flashes full screen. |
+| `use` | `overlay` goes over page images and is also scattered over the page. `jumpscare` flashes full screen. |
 | `placement` | For overlays: `cover`, `center`, `bottom-left`, `bottom-right`, `peek-corner` or `hang-top`. |
 | `size` | Width as a share of the image, for every placement except `cover`. |
 | `minSize` | Smallest image width in px the GIF may go on. |

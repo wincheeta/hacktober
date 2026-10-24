@@ -226,6 +226,61 @@ function wordsKey(url) {
   return `w|${url.split("#")[0]}`;
 }
 
+// ---------- swap dictionary ----------
+// Word swaps carry over from page to page (storage.local), up to
+// S.MAX_SWAP_DICT. `seen` adds up how often the word appeared on the pages
+// visited; once the dictionary is full, each page's new swaps replace the
+// entries with the lowest count.
+
+const swapDict = new Map(); // from -> { to, seen }
+const swapDictReady = chrome.storage.local
+  .get("swapDict")
+  .then((data) => {
+    const saved = (data && data.swapDict) || {};
+    const valid = S.validateSwaps(
+      { swaps: Object.entries(saved).map(([from, v]) => ({ from, to: v && v.to })) },
+      null,
+      S.MAX_SWAP_DICT
+    );
+    for (const { from, to } of valid) swapDict.set(from, { to, seen: Math.max(1, saved[from].seen | 0) });
+  })
+  .catch(() => {});
+
+let swapDictTimer = null;
+function saveSwapDict() {
+  if (swapDictTimer) return;
+  swapDictTimer = setTimeout(() => {
+    swapDictTimer = null;
+    chrome.storage.local.set({ swapDict: Object.fromEntries(swapDict) }).catch(() => {});
+  }, 1000);
+}
+
+// Count this page's words toward the swaps we already have.
+function noteWords(freq) {
+  for (const [word, n] of freq) {
+    const entry = swapDict.get(word);
+    if (entry) entry.seen += n;
+  }
+  saveSwapDict();
+}
+
+// Add new swaps, then drop the least seen older entries until it fits.
+function addSwaps(swaps, freq) {
+  const fresh = new Set();
+  for (const { from, to } of swaps) {
+    if (swapDict.has(from)) continue;
+    swapDict.set(from, { to, seen: freq.get(from) || 1 });
+    fresh.add(from);
+  }
+  const evictable = [...swapDict].filter(([w]) => !fresh.has(w)).sort((a, b) => a[1].seen - b[1].seen);
+  while (swapDict.size > S.MAX_SWAP_DICT && evictable.length) swapDict.delete(evictable.shift()[0]);
+  saveSwapDict();
+}
+
+function dictSwaps() {
+  return [...swapDict].map(([from, { to }]) => ({ from, to }));
+}
+
 // ---------- prompt ----------
 
 // Output tokens dominate latency on CPU (~7 tokens/s for a 3B model), so
@@ -506,16 +561,17 @@ async function run(job) {
       const swaps = await askWords(job, controller.signal);
       if (!swaps) {
         console.warn(`[Spookify] tab ${job.tabId}: unreadable words reply after ${secs()}s; page uses its word list`);
-        job.respond({ status: "error", error: "unreadable reply" });
+        job.respond({ status: "error", error: "unreadable reply", swaps: dictSwaps() });
         return;
       }
+      addSwaps(swaps, job.freq);
       console.info(
-        `[Spookify] tab ${job.tabId}: ${job.words.length} words -> ${swaps.length} swaps in ${secs()}s`,
+        `[Spookify] tab ${job.tabId}: ${job.words.length} words -> ${swaps.length} new swaps in ${secs()}s (${swapDict.size} kept)`,
         swaps.map((s) => `${s.from}->${s.to}`).join(", ")
       );
       cache.set(wordsKey(job.url), swaps);
       saveCache();
-      job.respond({ status: "ok", swaps });
+      job.respond({ status: "ok", swaps: dictSwaps() });
       return;
     }
     const result = await askModel(job, controller.signal);
@@ -549,12 +605,12 @@ async function run(job) {
     });
   } catch (err) {
     if (err.name === "AbortError") {
-      console.info(`[Spookify] tab ${job.tabId}: batch timed out or cancelled after ${secs()}s; page uses fallback`);
-      job.respond({ status: "timeout" });
+      console.info(`[Spookify] tab ${job.tabId}: ${job.kind || "batch"} timed out or cancelled after ${secs()}s; page uses fallback`);
+      job.respond({ status: "timeout", swaps: job.kind === "words" ? dictSwaps() : undefined });
     } else {
       console.warn(`[Spookify] tab ${job.tabId}: ${err.message}`);
       markFailure(err);
-      job.respond({ status: "error", error: status.lastError });
+      job.respond({ status: "error", error: status.lastError, swaps: job.kind === "words" ? dictSwaps() : undefined });
     }
   } finally {
     clearTimeout(timer);
@@ -626,24 +682,38 @@ async function handleBatch(tabId, msg, respond) {
   pump();
 }
 
+// msg.words: [word, count] pairs, most common first. The model only sees the
+// top 40 that have no swap yet; the counts keep the dictionary's tallies.
 async function handleWords(tabId, msg, respond) {
-  await Promise.all([settingsReady, cacheReady]);
-  const words = [...new Set((Array.isArray(msg.words) ? msg.words : []).map((w) => String(w).toLowerCase()))]
-    .filter((w) => /^[\p{L}'-]{3,20}$/u.test(w))
-    .slice(0, 40);
+  await Promise.all([settingsReady, cacheReady, swapDictReady]);
+  const freq = new Map();
+  for (const pair of Array.isArray(msg.words) ? msg.words : []) {
+    if (!Array.isArray(pair)) continue;
+    const w = String(pair[0]).toLowerCase();
+    if (/^[\p{L}'-]{3,20}$/u.test(w) && !freq.has(w)) freq.set(w, Math.max(1, Math.min(10000, pair[1] | 0)));
+    if (freq.size >= 300) break;
+  }
   const count = Math.max(0, Math.min(S.MAX_SWAPS, msg.count | 0));
   const url = String(msg.url || "");
-  if (!words.length || !count) return respond({ status: "ok", swaps: [] });
+  if (!freq.size || !count) return respond({ status: "ok", swaps: [] });
+  noteWords(freq);
 
   const hit = cache.get(wordsKey(url));
-  if (Array.isArray(hit)) return respond({ status: "ok", swaps: S.validateSwaps({ swaps: hit }, words, count), cached: true });
+  if (Array.isArray(hit)) {
+    addSwaps(S.validateSwaps({ swaps: hit }, null, count), freq);
+    return respond({ status: "ok", swaps: dictSwaps(), cached: true });
+  }
+
+  const words = [...freq.keys()].filter((w) => !swapDict.has(w)).slice(0, 40);
+  if (!words.length) return respond({ status: "ok", swaps: dictSwaps() });
 
   if (status.failing && Date.now() - status.lastFailAt < FAILING_RETRY_MS) {
-    return respond({ status: "offline", error: status.lastError });
+    return respond({ status: "offline", error: status.lastError, swaps: dictSwaps() });
   }
 
   if (!queues.has(tabId)) queues.set(tabId, []);
-  queues.get(tabId).push({ kind: "words", url, title: S.cleanText(String(msg.title || "")), words, count, tabId, respond, t: Date.now() });
+  const title = S.cleanText(String(msg.title || ""));
+  queues.get(tabId).push({ kind: "words", url, title, words, freq, count, tabId, respond, t: Date.now() });
   pump();
 }
 

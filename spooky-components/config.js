@@ -14,7 +14,7 @@ const SPOOKY_CONFIG = {
     wordSwaps: 5, // Ollama-chosen word swaps per page: level * 1.6, up to 10
     headingRewrites: 5, // Ollama heading rewrites per batch: level / 4 rounded, up to 2
     gifOverlays: 5, // chance an eligible image gets a GIF: level / 10
-    decor: 5, // scattered SVG decor: about level / 2 per three screens, capped by maxDecor
+    decor: 5, // GIFs scattered over the page: about level / 2 per three screens, capped by maxDecor
     cornerCobwebs: 4, // 0 hides the corner cobwebs, anything else shows them
     jumpscare: 3, // chance per page of one jump-scare: (level / 10)^2, so 3 = 9%, 5 = 25%, 10 = always
     skeletor: 5, // chance per page of the Skeletor fact bubble: level / 10

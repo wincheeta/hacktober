@@ -431,18 +431,25 @@
         }
       },
       () => {
-        const words = [...freq].sort((a, b) => b[1] - a[1]).slice(0, 40).map(([w]) => w);
+        // Counts go along so the background can tell which kept swaps are common.
+        const words = [...freq].sort((a, b) => b[1] - a[1]).slice(0, 300);
         if (words.length) requestSwaps(words, count, myGen);
       },
       MAX_TEXT_NODES
     );
   }
 
+  // The reply holds every swap kept across pages, not just this page's new ones.
   async function requestSwaps(words, count, myGen) {
     const reply = await ask({ type: "spook-words", url: location.href, title: document.title.slice(0, 100), words, count });
     if (myGen !== gen || !running) return;
-    const swaps =
-      reply && reply.status === "ok" ? S.validateSwaps({ swaps: reply.swaps }, words, count) : S.localSwaps(words, count);
+    const kept = S.validateSwaps({ swaps: reply && reply.swaps }, null, S.MAX_SWAP_DICT);
+    let swaps = kept;
+    if (!reply || reply.status !== "ok") {
+      const have = new Set(kept.map((s) => s.from));
+      const top = words.slice(0, 40).map(([w]) => w).filter((w) => !have.has(w));
+      swaps = [...kept, ...S.localSwaps(top, count)];
+    }
     if (!swaps.length) return;
     swapMap = new Map(swaps.map((s) => [s.from, s.to]));
     const escaped = swaps.map((s) => s.from.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
@@ -560,15 +567,25 @@
     return true;
   }
 
-  // Scatter `scatter` decor over the page with placeRandomly, plus the viewport-fixed `corner` cobwebs.
+  // Scatter `overlay` GIFs over the page with placeRandomly, plus the viewport-fixed `corner` cobwebs.
   function scatterDecor(myGen) {
     if (myGen !== gen || !running || !document.body) return;
     const vh = window.innerHeight || 800;
     const pageHeight = document.documentElement.scrollHeight;
-    const scatter = assetsFor(SPOOKY_DECOR, "scatter");
+    const scatter = assetsFor(SPOOKY_GIFS, "overlay");
     const maxDecor = CONFIG.maxDecor ?? 12;
     const count = Math.min(maxDecor, Math.ceil((level("decor") * pageHeight) / (3 * vh) / 2));
-    if (scatter.length) for (let i = 0; i < count; i++) placeRandomly(createSpookyDecor(pickWeighted(scatter)));
+    if (scatter.length) {
+      for (let i = 0; i < count; i++) {
+        const entry = pickWeighted(scatter);
+        try {
+          // `size` is a fraction of an image's width; on the page it scales a ~300px box.
+          placeRandomly(createSpookyGif(entry, Math.round((entry.size || 0.4) * 300)));
+        } catch {
+          return; // extension reloaded: getURL throws
+        }
+      }
+    }
 
     showSkeletor(myGen);
 
