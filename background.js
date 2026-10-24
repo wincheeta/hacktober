@@ -195,8 +195,9 @@ const SYSTEM_PROMPT = [
   "- Use each anchor at most once, and use a different spook for each anchor.",
   "- Avoid spooks listed in `recently_used`; the page already has those.",
   "- When there is a heading, image or footer, make one of your picks a tombstone or creepy_caption.",
-  "- Use only a position listed for that spook.",
-  "- Only tombstone and creepy_caption take `text`: a playful, spooky, family-friendly line of at most 8 words that riffs on the anchor's text.",
+  "- Use only a position listed for that spook. `possess` means the spook changes the element itself instead of adding a decoration.",
+  "- Make at least one pick a `possess` spook when the budget allows.",
+  `- Only ${S.catalog.filter((s) => s.needsText).map((s) => s.id).join(", ")} take \`text\`: a playful, spooky, family-friendly line of at most 8 words that riffs on the anchor's text.`,
   "- Reply with compact single-line JSON with no spaces or newlines, for example:",
   '{"placements":[{"anchor":"a3","spook":"ghost","position":"overlay"},{"anchor":"a9","spook":"tombstone","position":"after","text":"Here lies the comment section"}]}',
 ].join("\n");
