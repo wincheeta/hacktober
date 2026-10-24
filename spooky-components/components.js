@@ -82,19 +82,6 @@ const SPOOKY_DECOR = {
     </div>`,
   },
 
-  tombstone: {
-    use: "scatter",
-    html: `
-    <div data-spooky="tombstone" style="width:100px;height:120px;pointer-events:none;">
-      <svg viewBox="0 0 100 120" width="100%" height="100%">
-        <path d="M15 112V45C15 20 30 8 50 8s35 12 35 37v67z" fill="#7a7a7a" stroke="#444" stroke-width="3"/>
-        <text x="50" y="58" text-anchor="middle" font-family="Georgia, serif" font-size="22"
-              font-weight="bold" fill="#3a3a3a">R.I.P</text>
-        <rect x="5" y="108" width="90" height="12" rx="4" fill="#2e4d1f"/>
-      </svg>
-    </div>`,
-  },
-
   // Sits in the top-left corner of the viewport; flip with transform:scaleX(-1) for the other side.
   cobweb: {
     use: "corner",

@@ -14,6 +14,8 @@ const BASE_CONFIG = typeof SPOOKY_CONFIG !== "undefined" ? SPOOKY_CONFIG : { lev
 const seconds = (ms) => `${(ms / 1000).toFixed(ms % 1000 ? 1 : 0)}s`;
 const TUNING = [
   { path: ["levels", "modelSpooks"], label: "Model spooks (Ollama)", min: 0, max: 10, step: 1 },
+  { path: ["levels", "wordSwaps"], label: "Word swaps (Ollama)", min: 0, max: 10, step: 1 },
+  { path: ["levels", "headingRewrites"], label: "Heading rewrites (Ollama)", min: 0, max: 10, step: 1 },
   { path: ["levels", "gifOverlays"], label: "GIFs over images", min: 0, max: 10, step: 1 },
   { path: ["levels", "decor"], label: "Scattered decorations", min: 0, max: 10, step: 1 },
   { path: ["levels", "cornerCobwebs"], label: "Corner cobwebs", min: 0, max: 10, step: 1 },

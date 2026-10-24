@@ -268,54 +268,6 @@
   96% { transform: scaleY(1); }
 }
 
-/* ---------- tombstone ---------- */
-.spook-tomb {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: flex-start;
-  width: 130px;
-  min-height: 120px;
-  padding: 22px 10px 12px;
-  background: linear-gradient(#4a443e, #2b2723);
-  border: 2px solid #615a52;
-  border-radius: 60px 60px 6px 6px;
-  box-shadow: inset 0 0 14px rgba(0, 0, 0, 0.7), 0 6px 0 #1b3a12;
-  color: #d8d2c8;
-  font-family: Georgia, "Times New Roman", serif;
-  text-align: center;
-  animation: spook-rise 1.4s ease-out both;
-}
-
-.spook-box .spook-tomb {
-  position: absolute;
-  right: 10px;
-  bottom: -30px;
-}
-
-.spook-block .spook-tomb {
-  margin: 0 auto;
-}
-
-.spook-tomb-rip {
-  font-size: 18px;
-  font-weight: bold;
-  letter-spacing: 2px !important;
-  color: #e8e2d8;
-  margin-bottom: 6px;
-}
-
-.spook-tomb-text {
-  font-size: 12px;
-  font-style: italic;
-  color: #c8c0b4;
-}
-
-@keyframes spook-rise {
-  from { transform: translateY(24px); opacity: 0; }
-  to { transform: translateY(0); opacity: 1; }
-}
-
 /* ---------- creepy caption ---------- */
 .spook-caption {
   display: inline-block;
@@ -457,4 +409,23 @@
   15% { transform: scale(1); }
   80% { opacity: 1; }
   100% { opacity: 0; }
+}
+
+/* Headings the model rewrote: a one-shot flicker as the new text appears. */
+:root:not(.spookify-off) .spook-rewritten {
+  animation: spook-rewrite-flicker 0.9s steps(1, end) 1 both;
+  text-shadow: 0 0 8px rgba(255, 117, 24, 0.55);
+}
+
+@keyframes spook-rewrite-flicker {
+  0% { opacity: 0.1; }
+  15% { opacity: 1; }
+  25% { opacity: 0.3; }
+  40% { opacity: 1; }
+  55% { opacity: 0.5; }
+  70%, 100% { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spook-rewritten { animation: none !important; }
 }

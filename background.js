@@ -98,20 +98,22 @@ async function warmUp() {
   await settingsReady;
   const t = withTimeout(60000);
   try {
-    await ollamaFetch(
-      "/api/chat",
-      {
-        model: settings.model,
-        stream: false,
-        keep_alive: "30m",
-        options: { num_predict: 1 },
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          { role: "user", content: "{}" },
-        ],
-      },
-      t.signal
-    );
+    for (const prompt of [SYSTEM_PROMPT, WORDS_PROMPT]) {
+      await ollamaFetch(
+        "/api/chat",
+        {
+          model: settings.model,
+          stream: false,
+          keep_alive: "30m",
+          options: { num_predict: 1 },
+          messages: [
+            { role: "system", content: prompt },
+            { role: "user", content: "{}" },
+          ],
+        },
+        t.signal
+      );
+    }
     markOk();
   } catch (err) {
     if (err.name !== "AbortError") markFailure(err);
@@ -179,6 +181,10 @@ function cacheKey(url, anchor) {
   return `${url.split("#")[0]}|${anchor.tag}|${anchor.text}`;
 }
 
+function wordsKey(url) {
+  return `w|${url.split("#")[0]}`;
+}
+
 // ---------- prompt ----------
 
 // Output tokens dominate latency on CPU (~8 tokens/s for a 3B model), so the
@@ -194,11 +200,23 @@ const SYSTEM_PROMPT = [
   "Rules:",
   "- Use each anchor at most once, and use a different spook for each anchor.",
   "- Avoid spooks listed in `recently_used`; the page already has those.",
-  "- When there is a heading, image or footer, make one of your picks a tombstone or creepy_caption.",
+  "- When there is a heading, image or footer, make one of your picks a creepy_caption.",
   "- Use only a position listed for that spook.",
-  "- Only tombstone and creepy_caption take `text`: a playful, spooky, family-friendly line of at most 8 words that riffs on the anchor's text.",
+  "- Only creepy_caption takes `text`: a playful, spooky, family-friendly line of at most 8 words that riffs on the anchor's text.",
+  "- If `rewrites` is above 0, also rewrite up to that many h1/h2/h3 anchors into a spooky version of the same idea, about the same length.",
   "- Reply with compact single-line JSON with no spaces or newlines, for example:",
-  '{"placements":[{"anchor":"a3","spook":"ghost","position":"overlay"},{"anchor":"a9","spook":"tombstone","position":"after","text":"Here lies the comment section"}]}',
+  '{"placements":[{"anchor":"a3","spook":"ghost","position":"overlay"},{"anchor":"a9","spook":"creepy_caption","position":"after","text":"Here lies the comment section"}],"rewrites":[{"anchor":"a2","text":"The Price of Your Soul"}]}',
+].join("\n");
+
+const WORDS_PROMPT = [
+  "You rename everyday web page words into Halloween words.",
+  "You receive the page title, a list of common words from the page, and `count`.",
+  "Pick up to `count` words from the list and give each a spooky, family-friendly replacement of one or two words",
+  "that keeps the same part of speech and still makes sense in a sentence (cart -> coffin, search -> seance, team -> coven).",
+  "Every replacement must be clearly Halloween: ghosts, graves, bones, witches, potions, monsters, curses. Never a plain synonym.",
+  "Prefer words that are easy to spot on the page: navigation, buttons, nouns from headings.",
+  "Use only words from the list as `from`. Reply with compact single-line JSON, for example:",
+  '{"swaps":[{"from":"cart","to":"coffin"},{"from":"login","to":"summon"}]}',
 ].join("\n");
 
 // Preferred schema: one variant per spook, so positions are always valid and
@@ -206,7 +224,7 @@ const SYSTEM_PROMPT = [
 // which case we fall back to the flat schema for the rest of the session.
 let useFlatSchema = false;
 
-function buildSchema(ids, budget) {
+function buildSchema(ids, budget, headingIds, rewrites) {
   const anchor = { type: "string", enum: ids };
   const items = useFlatSchema
     ? {
@@ -230,10 +248,39 @@ function buildSchema(ids, budget) {
           return { type: "object", properties, required, additionalProperties: false };
         }),
       };
+  const properties = { placements: { type: "array", maxItems: budget, items } };
+  if (rewrites > 0 && headingIds.length) {
+    properties.rewrites = {
+      type: "array",
+      maxItems: rewrites,
+      items: {
+        type: "object",
+        properties: { anchor: { type: "string", enum: headingIds }, text: { type: "string", maxLength: S.MAX_TEXT } },
+        required: ["anchor", "text"],
+      },
+    };
+  }
+  return { type: "object", properties, required: ["placements"] };
+}
+
+function wordsSchema(words, count) {
   return {
     type: "object",
-    properties: { placements: { type: "array", maxItems: budget, items } },
-    required: ["placements"],
+    properties: {
+      swaps: {
+        type: "array",
+        maxItems: count,
+        items: {
+          type: "object",
+          properties: {
+            from: { type: "string", enum: words },
+            to: { type: "string", maxLength: S.MAX_SWAP_TEXT },
+          },
+          required: ["from", "to"],
+        },
+      },
+    },
+    required: ["swaps"],
   };
 }
 
@@ -260,6 +307,8 @@ function rememberSpooks(tabId, placements) {
 
 async function askModel(job, signal) {
   const ids = job.anchors.map((a) => a.id);
+  const headingIds = job.anchors.filter((a) => S.HEADING_TAGS.has(a.tag)).map((a) => a.id);
+  const rewrites = headingIds.length ? job.rewrites : 0;
   const started = Date.now();
   const request = () =>
     ollamaFetch(
@@ -268,8 +317,8 @@ async function askModel(job, signal) {
         model: settings.model,
         stream: false,
         keep_alive: "30m",
-        format: buildSchema(ids, job.budget),
-        options: { temperature: 0.9, num_predict: 160 },
+        format: buildSchema(ids, job.budget, headingIds, rewrites),
+        options: { temperature: 0.9, num_predict: rewrites ? 220 : 160 },
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
           {
@@ -277,6 +326,7 @@ async function askModel(job, signal) {
             content: JSON.stringify({
               page_title: job.title,
               budget: job.budget,
+              rewrites,
               recently_used: recentSpooks.get(job.tabId) || [],
               anchors: job.anchors,
             }),
@@ -295,7 +345,32 @@ async function askModel(job, signal) {
     data = await request();
   }
   markOk(Date.now() - started);
-  return S.validate(parseJson(data && data.message && data.message.content), ids, job.budget);
+  const parsed = parseJson(data && data.message && data.message.content);
+  return {
+    placements: S.validate(parsed, ids, job.budget),
+    rewrites: S.validateRewrites(parsed, headingIds, rewrites),
+  };
+}
+
+async function askWords(job, signal) {
+  const started = Date.now();
+  const data = await ollamaFetch(
+    "/api/chat",
+    {
+      model: settings.model,
+      stream: false,
+      keep_alive: "30m",
+      format: wordsSchema(job.words, job.count),
+      options: { temperature: 0.9, num_predict: 140 },
+      messages: [
+        { role: "system", content: WORDS_PROMPT },
+        { role: "user", content: JSON.stringify({ page_title: job.title, count: job.count, words: job.words }) },
+      ],
+    },
+    signal
+  );
+  markOk(Date.now() - started);
+  return S.validateSwaps(parseJson(data && data.message && data.message.content), job.words, job.count);
 }
 
 // ---------- queue ----------
@@ -329,14 +404,18 @@ function nextJob() {
   const tabIds = [...queues.keys()].sort((a, b) => (b === activeTabId) - (a === activeTabId));
   const now = Date.now();
   for (const tabId of tabIds) {
-    const queue = queues.get(tabId);
-    while (queue.length && now - queue[0].t > STALE_MS) queue.shift().respond({ status: "stale" });
+    let queue = queues.get(tabId);
+    const stale = queue.filter((job) => job.kind !== "words" && now - job.t > STALE_MS);
+    stale.forEach((job) => job.respond({ status: "stale" }));
+    if (stale.length) queues.set(tabId, (queue = queue.filter((job) => !stale.includes(job))));
     if (!queue.length) {
       queues.delete(tabId);
       continue;
     }
     if (inflight.has(tabId)) continue;
-    return queue.pop();
+    // One words job per page; it changes the most text, so it goes first.
+    const words = queue.findIndex((job) => job.kind === "words");
+    return words >= 0 ? queue.splice(words, 1)[0] : queue.pop();
   }
   return null;
 }
@@ -357,19 +436,39 @@ async function run(job) {
   const started = Date.now();
   const secs = () => ((Date.now() - started) / 1000).toFixed(1);
   try {
-    const placements = await askModel(job, controller.signal);
+    if (job.kind === "words") {
+      const swaps = await askWords(job, controller.signal);
+      console.info(
+        `[Spookify] tab ${job.tabId}: ${job.words.length} words -> ${swaps.length} swaps in ${secs()}s`,
+        swaps.map((s) => `${s.from}->${s.to}`).join(", ")
+      );
+      cache.set(wordsKey(job.url), swaps);
+      saveCache();
+      job.respond({ status: "ok", swaps });
+      return;
+    }
+    const { placements, rewrites } = await askModel(job, controller.signal);
     console.info(
       `[Spookify] tab ${job.tabId}: ${job.anchors.length} anchors -> ${placements.length} spooks in ${secs()}s`,
-      placements.map((p) => `${p.spook}@${p.anchor}${p.text ? ` "${p.text}"` : ""}`).join(", ")
+      [
+        ...placements.map((p) => `${p.spook}@${p.anchor}${p.text ? ` "${p.text}"` : ""}`),
+        ...rewrites.map((r) => `rewrite@${r.anchor} "${r.text}"`),
+      ].join(", ")
     );
     rememberSpooks(job.tabId, placements);
     const chosen = new Map(placements.map((p) => [p.anchor, p]));
+    const rewritten = new Map(rewrites.map((r) => [r.anchor, r.text]));
     for (const a of job.anchors) {
       const p = chosen.get(a.id);
       cache.set(cacheKey(job.url, a), p ? { spook: p.spook, position: p.position, text: p.text } : "none");
+      if (job.rewrites && S.HEADING_TAGS.has(a.tag)) cache.set(`r|${cacheKey(job.url, a)}`, rewritten.get(a.id) || "none");
     }
     saveCache();
-    job.respond({ status: "ok", placements: [...job.cached, ...placements] });
+    job.respond({
+      status: "ok",
+      placements: [...job.cached, ...placements],
+      rewrites: [...job.cachedRewrites, ...rewrites],
+    });
   } catch (err) {
     if (err.name === "AbortError") {
       console.info(`[Spookify] tab ${job.tabId}: batch timed out or cancelled after ${secs()}s; page uses fallback`);
@@ -401,6 +500,7 @@ function sanitizeBatch(msg) {
     title: S.cleanText(String(msg.title || "")),
     anchors,
     budget: Math.max(0, Math.min(S.MAX_PER_BATCH, msg.budget | 0)),
+    rewrites: Math.max(0, Math.min(S.MAX_REWRITES, msg.rewrites | 0)),
   };
 }
 
@@ -411,14 +511,23 @@ async function handleBatch(tabId, msg, respond) {
 
   // Serve what we can from the cache; only uncached anchors go to the model.
   const cached = [];
+  const cachedRewrites = [];
   const uncached = [];
   for (const a of batch.anchors) {
-    const hit = cache.get(cacheKey(batch.url, a));
+    const key = cacheKey(batch.url, a);
+    const hit = cache.get(key);
     if (hit === undefined) uncached.push(a);
     else if (hit !== "none" && cached.length < batch.budget) cached.push({ anchor: a.id, ...hit });
+    const rewrite = batch.rewrites ? cache.get(`r|${key}`) : undefined;
+    if (typeof rewrite === "string" && rewrite !== "none" && cachedRewrites.length < batch.rewrites) {
+      cachedRewrites.push({ anchor: a.id, text: rewrite });
+    }
   }
   const budget = batch.budget - cached.length;
-  if (!uncached.length || budget <= 0) return respond({ status: "ok", placements: cached, cached: true });
+  const rewrites = batch.rewrites - cachedRewrites.length;
+  if (!uncached.length || budget <= 0) {
+    return respond({ status: "ok", placements: cached, rewrites: cachedRewrites, cached: true });
+  }
 
   // Ollama failed hard very recently: answer at once so the page falls back.
   if (status.failing && Date.now() - status.lastFailAt < FAILING_RETRY_MS) {
@@ -426,7 +535,28 @@ async function handleBatch(tabId, msg, respond) {
   }
 
   if (!queues.has(tabId)) queues.set(tabId, []);
-  queues.get(tabId).push({ ...batch, anchors: uncached, budget, cached, tabId, respond, t: Date.now() });
+  queues.get(tabId).push({ ...batch, anchors: uncached, budget, rewrites, cached, cachedRewrites, tabId, respond, t: Date.now() });
+  pump();
+}
+
+async function handleWords(tabId, msg, respond) {
+  await Promise.all([settingsReady, cacheReady]);
+  const words = [...new Set((Array.isArray(msg.words) ? msg.words : []).map((w) => String(w).toLowerCase()))]
+    .filter((w) => /^[\p{L}'-]{3,20}$/u.test(w))
+    .slice(0, 40);
+  const count = Math.max(0, Math.min(S.MAX_SWAPS, msg.count | 0));
+  const url = String(msg.url || "");
+  if (!words.length || !count) return respond({ status: "ok", swaps: [] });
+
+  const hit = cache.get(wordsKey(url));
+  if (Array.isArray(hit)) return respond({ status: "ok", swaps: S.validateSwaps({ swaps: hit }, words, count), cached: true });
+
+  if (status.failing && Date.now() - status.lastFailAt < FAILING_RETRY_MS) {
+    return respond({ status: "offline", error: status.lastError });
+  }
+
+  if (!queues.has(tabId)) queues.set(tabId, []);
+  queues.get(tabId).push({ kind: "words", url, title: S.cleanText(String(msg.title || "")), words, count, tabId, respond, t: Date.now() });
   pump();
 }
 
@@ -474,6 +604,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     const tabId = sender.tab && sender.tab.id;
     if (tabId == null) return;
     handleBatch(tabId, msg, sendResponse);
+    return true;
+  }
+  if (msg.type === "spook-words") {
+    const tabId = sender.tab && sender.tab.id;
+    if (tabId == null) return;
+    handleWords(tabId, msg, sendResponse);
     return true;
   }
   if (msg.type === "spook-cancel") {

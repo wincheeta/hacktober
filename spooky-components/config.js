@@ -8,6 +8,8 @@
 const SPOOKY_CONFIG = {
   levels: {
     modelSpooks: 5, // Ollama-placed catalog spooks: about `level` per three screens
+    wordSwaps: 5, // Ollama-chosen word swaps per page: level * 1.6, up to 10
+    headingRewrites: 5, // Ollama heading rewrites per batch: level / 4 rounded, up to 2
     gifOverlays: 5, // chance an eligible image gets a GIF: level / 10
     decor: 5, // scattered SVG decor: about level / 2 per three screens, capped by maxDecor
     cornerCobwebs: 4, // 0 hides the corner cobwebs, anything else shows them

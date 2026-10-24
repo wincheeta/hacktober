@@ -9,14 +9,6 @@
   const MAX_TEXT = 60;
   const MAX_PER_BATCH = 3;
 
-  const EPITAPHS = [
-    "Here lies the last tab you closed",
-    "Clicked one link too many",
-    "Rest in pixels",
-    "Gone, but still loading",
-    "They read the terms and conditions",
-    "Cookies accepted. Soul taken.",
-  ];
   const CAPTIONS = [
     "Something is reading this with you...",
     "Don't look behind the scrollbar.",
@@ -172,18 +164,6 @@
       },
     },
     {
-      id: "tombstone",
-      description: "a tombstone with a short epitaph that riffs on the element's text (good for footers, old posts, prices)",
-      positions: ["after", "before", "overlay"],
-      needsText: true,
-      render(text) {
-        const root = el("span", "spook-tomb");
-        root.appendChild(el("span", "spook-tomb-rip", "R.I.P."));
-        root.appendChild(el("span", "spook-tomb-text", text || pick(EPITAPHS)));
-        return root;
-      },
-    },
-    {
       id: "creepy_caption",
       description: "a whispered, unsettling caption under the element that riffs on its text (good for headlines and images)",
       positions: ["after", "append", "overlay"],
@@ -263,11 +243,80 @@
       p: ["ghost", "spider_drop", "creepy_caption", "bat_swarm"],
       nav: ["cobweb", "bat_swarm"],
       header: ["cobweb", "bat_swarm", "spider_drop"],
-      footer: ["tombstone", "cobweb"],
+      footer: ["creepy_caption", "cobweb"],
       article: ["cobweb", "ghost", "glowing_eyes"],
       button: ["jack_o_lantern", "cobweb"],
     };
     return byId[pick(fits[tag] || catalog.map((s) => s.id))];
+  }
+
+  // ---------- word swaps and heading rewrites ----------
+
+  const MAX_SWAP_TEXT = 24;
+  const MAX_SWAPS = 10;
+  const MAX_REWRITES = 2;
+  const HEADING_TAGS = new Set(["h1", "h2", "h3"]);
+
+  // Local fallback swaps, used when the model is offline or slow.
+  const WORD_SWAPS = {
+    home: "tomb", search: "séance", cart: "coffin", basket: "cauldron", account: "crypt",
+    login: "summon", sign: "omen", menu: "grimoire", news: "omens", comments: "wails",
+    comment: "wail", share: "curse", subscribe: "join the coven", help: "exorcism",
+    settings: "rituals", profile: "haunt", contact: "séance", about: "lore",
+    blog: "diary of the damned", shop: "apothecary", store: "apothecary", price: "toll",
+    prices: "tolls", free: "cursed", sale: "sacrifice", offer: "bargain", deals: "bargains",
+    email: "raven", message: "spirit message", messages: "spirit messages", friends: "familiars",
+    people: "spirits", user: "mortal", users: "mortals", team: "coven", members: "coven",
+    community: "graveyard", video: "apparition", videos: "apparitions", photo: "portrait",
+    photos: "portraits", today: "tonight", update: "resurrection", updates: "resurrections",
+    download: "unearth", upload: "bury", delete: "banish", history: "ancient lore",
+    privacy: "secrecy", terms: "pacts", cookies: "soul cakes", password: "incantation",
+  };
+
+  function swapText(value) {
+    return cleanText(value).slice(0, MAX_SWAP_TEXT);
+  }
+
+  // `from` must be one of the page words we sent; `to` is short plain text.
+  function validateSwaps(raw, words, max) {
+    const allowed = words instanceof Set ? words : new Set(words);
+    const limit = Math.max(0, Math.min(MAX_SWAPS, max | 0));
+    const list = raw && Array.isArray(raw.swaps) ? raw.swaps : [];
+    const out = [];
+    const used = new Set();
+    for (const s of list) {
+      if (out.length >= limit) break;
+      if (!s || typeof s !== "object") continue;
+      const from = String(s.from || "").toLowerCase();
+      const to = swapText(s.to);
+      if (!allowed.has(from) || used.has(from) || !to || to.toLowerCase() === from) continue;
+      out.push({ from, to });
+      used.add(from);
+    }
+    return out;
+  }
+
+  function localSwaps(words, max) {
+    const raw = { swaps: words.filter((w) => WORD_SWAPS[w]).map((w) => ({ from: w, to: WORD_SWAPS[w] })) };
+    return validateSwaps(raw, words, max);
+  }
+
+  function validateRewrites(raw, headingIds, max) {
+    const ids = headingIds instanceof Set ? headingIds : new Set(headingIds);
+    const limit = Math.max(0, Math.min(MAX_REWRITES, max | 0));
+    const list = raw && Array.isArray(raw.rewrites) ? raw.rewrites : [];
+    const out = [];
+    const used = new Set();
+    for (const r of list) {
+      if (out.length >= limit) break;
+      if (!r || typeof r !== "object") continue;
+      const anchor = String(r.anchor);
+      const text = cleanText(r.text);
+      if (!ids.has(anchor) || used.has(anchor) || !text) continue;
+      out.push({ anchor, text });
+      used.add(anchor);
+    }
+    return out;
   }
 
   root.Spookify = {
@@ -276,8 +325,15 @@
     POSITIONS,
     MAX_TEXT,
     MAX_PER_BATCH,
+    MAX_SWAP_TEXT,
+    MAX_SWAPS,
+    MAX_REWRITES,
+    HEADING_TAGS,
     validate,
     randomPlacements,
     cleanText,
+    validateSwaps,
+    localSwaps,
+    validateRewrites,
   };
 })(typeof self !== "undefined" ? self : globalThis);

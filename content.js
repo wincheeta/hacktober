@@ -17,6 +17,14 @@
   const LOOKAHEAD = "0px 0px 150% 0px";
   const MAX_CANDIDATES = 1500;
   const REPLY_TIMEOUT_MS = 45000; // > background stale window + request timeout
+  // Text we never rewrite: code, form fields, editors and our own spooks.
+  const NO_SWAP = "script, style, noscript, code, pre, kbd, samp, textarea, input, select, option, svg, [contenteditable=''], [contenteditable='true'], .spook-root, #spook-layer";
+  const MAX_TEXT_NODES = 3000;
+  const STOPWORDS = new Set(
+    ("that this with from have your will more about what when which their there them they been were would " +
+      "could should into than then also only just some other such like make most over very here these those " +
+      "where while after before because each does done many much must need being both every same even ever").split(" ")
+  );
 
   const idle = window.requestIdleCallback
     ? (fn) => window.requestIdleCallback(fn, { timeout: 2000 })
@@ -45,6 +53,10 @@
   let addedRoots = [];
   let mutationTimer = null;
   let repositionQueued = false;
+  let originals = new Map(); // text node -> { text: before we touched it, ours: what we set }
+  let rewritten = []; // { el, title } headings we rewrote, to restore their title
+  let swapRegex = null;
+  let swapMap = null; // lowercase word -> replacement
 
   // ---------- discovery ----------
 
@@ -139,7 +151,8 @@
     const budget = Math.min(S.MAX_PER_BATCH, budgetLeft());
     if (budget <= 0) return;
     reserved += budget;
-    requestPlacements(batch, budget, gen);
+    const rewrites = Math.min(S.MAX_REWRITES, Math.round(level("headingRewrites") / 4));
+    requestPlacements(batch, budget, rewrites, gen);
   }
 
   function ask(message) {
@@ -153,26 +166,35 @@
     return Promise.race([reply, timeout]);
   }
 
-  async function requestPlacements(batch, budget, myGen) {
+  async function requestPlacements(batch, budget, rewrites, myGen) {
     const reply = await ask({
       type: "spook-batch",
       url: location.href,
       title: document.title.slice(0, 100),
       anchors: batch,
       budget,
+      rewrites,
     });
     if (myGen !== gen || !running) return;
     reserved -= budget;
 
     const ids = batch.map((a) => a.id);
     let placements;
+    let headings = [];
     if (reply && reply.status === "ok") {
       placements = S.validate({ placements: reply.placements }, ids, budget);
+      const headingIds = batch.filter((a) => S.HEADING_TAGS.has(a.tag)).map((a) => a.id);
+      headings = S.validateRewrites({ rewrites: reply.rewrites }, headingIds, rewrites);
     } else {
       // Offline, timed out, stale or errored: decorate locally instead.
       placements = S.randomPlacements(batch, budget);
     }
-    if (placements.length) requestAnimationFrame(() => placements.forEach((p) => render(p, myGen)));
+    if (placements.length || headings.length) {
+      requestAnimationFrame(() => {
+        placements.forEach((p) => render(p, myGen));
+        headings.forEach((r) => rewriteHeading(r, myGen));
+      });
+    }
   }
 
   // ---------- rendering ----------
@@ -222,7 +244,7 @@
       placeBox(wrapper, rect, l.getBoundingClientRect());
       overlays.push({ box: wrapper, anchor });
     } else {
-      const block = spook.id === "tombstone" || (spook.id === "creepy_caption" && (position === "before" || position === "after"));
+      const block = spook.id === "creepy_caption" && (position === "before" || position === "after");
       wrapper = document.createElement(block ? "div" : "span");
       wrapper.className = `spook-root ${block ? "spook-block" : "spook-inline"} spook-${spook.id}`;
       wrapper.setAttribute("aria-hidden", "true");
@@ -233,6 +255,117 @@
     anchor.dataset.spookDone = spook.id;
     placed++;
     animIo.observe(wrapper);
+  }
+
+  // ---------- word swaps and heading rewrites ----------
+  // Only text node values change (no wrapping spans), so frameworks that hold
+  // references to these nodes keep working. `originals` restores them.
+
+  function swappable(node) {
+    const parent = node.parentElement;
+    return !!parent && !parent.closest(NO_SWAP) && !originals.has(node);
+  }
+
+  // Walk text nodes in idle chunks, calling fn on each eligible one.
+  function walkText(rootNode, myGen, fn, done) {
+    if (!rootNode || !rootNode.isConnected) return;
+    const walker = document.createTreeWalker(rootNode, NodeFilter.SHOW_TEXT);
+    let count = 0;
+    const step = (deadline) => {
+      if (myGen !== gen || !running) return;
+      let node;
+      while ((node = walker.nextNode()) && count < MAX_TEXT_NODES) {
+        count++;
+        if (node.nodeValue.trim() && swappable(node)) fn(node);
+        if (count % 100 === 0 && deadline.timeRemaining() < 2) return idle(step);
+      }
+      if (done) done();
+    };
+    idle(step);
+  }
+
+  function collectWords(myGen) {
+    const count = Math.min(S.MAX_SWAPS, Math.round(level("wordSwaps") * 1.6));
+    if (count <= 0 || !document.body) return;
+    const freq = new Map();
+    walkText(
+      document.body,
+      myGen,
+      (node) => {
+        for (const m of node.nodeValue.toLowerCase().matchAll(/\p{L}[\p{L}'-]*/gu)) {
+          const w = m[0];
+          if (w.length < 4 || w.length > 14 || STOPWORDS.has(w)) continue;
+          freq.set(w, (freq.get(w) || 0) + 1);
+        }
+      },
+      () => {
+        const words = [...freq].sort((a, b) => b[1] - a[1]).slice(0, 40).map(([w]) => w);
+        if (words.length) requestSwaps(words, count, myGen);
+      }
+    );
+  }
+
+  async function requestSwaps(words, count, myGen) {
+    const reply = await ask({ type: "spook-words", url: location.href, title: document.title.slice(0, 100), words, count });
+    if (myGen !== gen || !running) return;
+    const swaps =
+      reply && reply.status === "ok" ? S.validateSwaps({ swaps: reply.swaps }, words, count) : S.localSwaps(words, count);
+    if (!swaps.length) return;
+    swapMap = new Map(swaps.map((s) => [s.from, s.to]));
+    const escaped = swaps.map((s) => s.from.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+    swapRegex = new RegExp(`(?<![\\p{L}])(${escaped.join("|")})(?![\\p{L}])`, "giu");
+    applySwaps(document.body, myGen);
+  }
+
+  function matchCase(source, to) {
+    if (source.length > 1 && source === source.toUpperCase()) return to.toUpperCase();
+    if (source[0] !== source[0].toLowerCase()) return to[0].toUpperCase() + to.slice(1);
+    return to;
+  }
+
+  function applySwaps(rootNode, myGen) {
+    if (!swapRegex) return;
+    walkText(rootNode, myGen, (node) => {
+      const before = node.nodeValue;
+      swapRegex.lastIndex = 0;
+      if (!swapRegex.test(before)) return;
+      swapRegex.lastIndex = 0;
+      node.nodeValue = before.replace(swapRegex, (m) => matchCase(m, swapMap.get(m.toLowerCase())));
+      originals.set(node, { text: before, ours: node.nodeValue });
+    });
+  }
+
+  // Only headings whose text sits in one text node, so links and markup inside stay intact.
+  function rewriteHeading(r, myGen) {
+    if (myGen !== gen || !running) return;
+    const heading = anchors.get(r.anchor);
+    if (!heading || !heading.isConnected || heading.classList.contains("spook-rewritten")) return;
+    const texts = [];
+    const walker = document.createTreeWalker(heading, NodeFilter.SHOW_TEXT);
+    for (let n; (n = walker.nextNode()); ) if (n.nodeValue.trim()) texts.push(n);
+    if (texts.length !== 1 || texts[0].parentElement.closest(".spook-root")) return;
+    const node = texts[0];
+    const original = originals.has(node) ? originals.get(node).text : node.nodeValue;
+    rewritten.push({ el: heading, title: heading.getAttribute("title") });
+    heading.title = collapse(original);
+    node.nodeValue = r.text;
+    originals.set(node, { text: original, ours: node.nodeValue });
+    heading.classList.add("spook-rewritten");
+  }
+
+  function restoreText() {
+    // Skip nodes the page has rewritten since; its text is newer than ours.
+    originals.forEach(({ text, ours }, node) => {
+      if (node.nodeValue === ours) node.nodeValue = text;
+    });
+    for (const { el, title } of rewritten) {
+      el.classList.remove("spook-rewritten");
+      if (title === null) el.removeAttribute("title");
+      else el.setAttribute("title", title);
+    }
+    originals = new Map();
+    rewritten = [];
+    swapRegex = swapMap = null;
   }
 
   // ---------- components (spooky-components/components.js) ----------
@@ -409,6 +542,7 @@
         const roots = addedRoots;
         addedRoots = [];
         roots.forEach(scanRoot);
+        roots.forEach((root) => applySwaps(root, gen));
       }, 500);
     }
   }
@@ -456,6 +590,7 @@
     pending = [];
     addedRoots = [];
     placed = reserved = maxBottom = observedCount = 0;
+    restoreText();
     document.querySelectorAll(".spook-root").forEach((n) => n.remove());
     if (layer) layer.remove();
     layer = null;
@@ -494,6 +629,7 @@
     idle(() => {
       scanRoot(document.body);
       idle(() => scatterDecor(myGen));
+      idle(() => collectWords(myGen));
     });
     maybeJumpscare(myGen);
   }
