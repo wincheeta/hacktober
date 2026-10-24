@@ -19,6 +19,7 @@ for (const name of fs.readdirSync(root)) {
 }
 
 const manifest = JSON.parse(fs.readFileSync(path.join(root, "manifest.json"), "utf8"));
-manifest.background = { scripts: ["spooks.js", "background.js"] };
+// Same files, in the same order, as background.js's importScripts.
+manifest.background = { scripts: ["spooks.js", "modules/prompts.js", "background.js"] };
 fs.writeFileSync(path.join(out, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
 console.log(`Firefox build written to ${path.relative(root, out)}`);

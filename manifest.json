@@ -26,7 +26,8 @@
       ],
       "css": [
         "theme.css",
-        "spooks.css"
+        "spooks.css",
+        "modules/skeletor.css"
       ],
       "js": [
         "boot.js"
@@ -41,6 +42,8 @@
         "spooks.js",
         "spooky-components/config.js",
         "spooky-components/components.js",
+        "modules/moodle.js",
+        "modules/skeletor.js",
         "content.js"
       ],
       "run_at": "document_idle"
@@ -50,6 +53,7 @@
     {
       "resources": [
         "Pictures/*.gif",
+        "Pictures/*.webp",
         "spooky-components/*.svg",
         "audio/*"
       ],
@@ -64,4 +68,4 @@
       "strict_min_version": "121.0"
     }
   }
-}
+}

@@ -1,9 +1,11 @@
 // Spookify background worker: per-tab request queue, Ollama client and cache.
-// Chrome runs this as a service worker (spooks.js via importScripts);
-// Firefox runs it as an event page with spooks.js listed first in the manifest.
-if (typeof importScripts === "function" && !self.Spookify) importScripts("spooks.js");
+// Chrome runs this as a service worker (spooks.js and modules/prompts.js via
+// importScripts); Firefox runs it as an event page with those listed first by
+// build-firefox.js.
+if (typeof importScripts === "function" && !self.Spookify) importScripts("spooks.js", "modules/prompts.js");
 
 const S = self.Spookify;
+const P = self.SpookifyPrompts;
 const OLLAMA = "http://localhost:11434";
 const DEFAULTS = { enabled: true, model: "", intensity: 5 }; // model "" = auto-detect
 const PREFERRED_MODEL = "llama3.2:3b";
@@ -139,7 +141,7 @@ async function warmUp() {
   const t = withTimeout(60000);
   try {
     const model = await resolveModel(t.signal);
-    for (const prompt of [SYSTEM_PROMPT, WORDS_PROMPT]) {
+    for (const prompt of [P.SYSTEM_PROMPT, P.WORDS_PROMPT]) {
       await ollamaFetch(
         "/api/chat",
         {
@@ -281,131 +283,12 @@ function dictSwaps() {
   return [...swapDict].map(([from, { to }]) => ({ from, to }));
 }
 
-// ---------- prompt ----------
+// ---------- model requests ----------
+// Prompts and schemas live in modules/prompts.js.
 
-// Output tokens dominate latency on CPU (~7 tokens/s for a 3B model), so
-// replies use one-letter keys and leave out `p` when a spook has only one
-// position: about 36 tokens for three placements instead of 55. A shorter
-// prompt also keeps an uncached first request (~40 prompt tokens/s) quick.
-const shortDescription = (d) => d.replace(/ \(good for[^)]*\)/, "");
-const SYSTEM_PROMPT = [
-  "You decorate web pages for Halloween. You get a few page elements (anchors) near where the user is reading.",
-  "Pick at most `budget` anchors and give each a different spook that suits it.",
-  "Spooks (id: look [positions], possess = changes the element itself):",
-  ...S.catalog.map((s) => {
-    const where = s.positions.length > 1 ? ` [${s.positions.join(",")}]` : s.positions[0] === "possess" ? " [possess]" : "";
-    return `- ${s.id}: ${shortDescription(s.description)}${where}`;
-  }),
-  "Rules: avoid spooks in `recently_used`; include one creepy_caption for a heading, image or footer; include one possess spook when the budget allows.",
-  `\`t\` (only ${S.catalog.filter((s) => s.needsText).map((s) => s.id).join(", ")}): a playful, family-friendly line of at most 8 words that riffs on the anchor's text.`,
-  "If `rewrites` is above 0, also rewrite up to that many h1/h2/h3 anchors into a spooky version of the same idea, about the same length.",
-  "Reply as compact JSON. a=anchor, s=spook, p=position (only for spooks with several positions), t=text. Example:",
-  '{"placements":[{"a":"a3","s":"ghost"},{"a":"a9","s":"creepy_caption","p":"after","t":"Here lies the comment section"}],"rewrites":[{"a":"a2","t":"The Price of Your Soul"}]}',
-].join("\n");
-
-const WORDS_PROMPT = [
-  "You rename everyday web page words into Halloween words.",
-  "You get the page title, a list of common words from the page, and `count`.",
-  "Pick up to `count` words from the list and give each a spooky, family-friendly replacement of one or two words",
-  "that keeps the same part of speech and still makes sense in a sentence (cart -> coffin, search -> seance, team -> coven).",
-  "Every replacement must be clearly Halloween: ghosts, graves, bones, witches, potions, monsters, curses. Never a plain synonym.",
-  "Prefer words that are easy to spot on the page: navigation, buttons, nouns from headings.",
-  "Use only words from the list. Reply as compact JSON, f=from, t=to, for example:",
-  '{"swaps":[{"f":"cart","t":"coffin"},{"f":"login","t":"summon"}]}',
-].join("\n");
-
-// Preferred schema: one variant per spook, so positions are always valid and
-// only text spooks can carry text. Older Ollama builds may reject anyOf, in
-// which case we fall back to the flat schema for the rest of the session.
+// Older Ollama builds may reject the anyOf schema, in which case we fall back
+// to the flat schema for the rest of the session.
 let useFlatSchema = false;
-
-function buildSchema(ids, budget, headingIds, rewrites) {
-  const a = { type: "string", enum: ids };
-  const items = useFlatSchema
-    ? {
-        type: "object",
-        properties: {
-          a,
-          s: { type: "string", enum: S.catalog.map((s) => s.id) },
-          p: { type: "string", enum: S.POSITIONS },
-          t: { type: "string" },
-        },
-        required: ["a", "s"],
-      }
-    : {
-        anyOf: S.catalog.map((s) => {
-          const properties = { a, s: { type: "string", const: s.id } };
-          const required = ["a", "s"];
-          if (s.positions.length > 1) {
-            properties.p = { type: "string", enum: s.positions };
-            required.push("p");
-          }
-          if (s.needsText) {
-            properties.t = { type: "string", maxLength: S.MAX_TEXT };
-            required.push("t");
-          }
-          return { type: "object", properties, required, additionalProperties: false };
-        }),
-      };
-  const properties = { placements: { type: "array", maxItems: budget, items } };
-  if (rewrites > 0 && headingIds.length) {
-    properties.rewrites = {
-      type: "array",
-      maxItems: rewrites,
-      items: {
-        type: "object",
-        properties: { a: { type: "string", enum: headingIds }, t: { type: "string", maxLength: S.MAX_TEXT } },
-        required: ["a", "t"],
-      },
-    };
-  }
-  return { type: "object", properties, required: ["placements"] };
-}
-
-function wordsSchema(words, count) {
-  return {
-    type: "object",
-    properties: {
-      swaps: {
-        type: "array",
-        maxItems: count,
-        items: {
-          type: "object",
-          properties: {
-            f: { type: "string", enum: words },
-            t: { type: "string", maxLength: S.MAX_SWAP_TEXT },
-          },
-          required: ["f", "t"],
-        },
-      },
-    },
-    required: ["swaps"],
-  };
-}
-
-// Expand the model's one-letter keys into the names the validators use.
-function expandReply(parsed) {
-  const list = (v) => (Array.isArray(v) ? v.filter((x) => x && typeof x === "object") : []);
-  return {
-    placements: list(parsed.placements).map((p) => ({ anchor: p.a, spook: p.s, position: p.p, text: p.t })),
-    rewrites: list(parsed.rewrites).map((r) => ({ anchor: r.a, text: r.t })),
-    swaps: list(parsed.swaps).map((w) => ({ from: w.f, to: w.t })),
-  };
-}
-
-function parseJson(content) {
-  try {
-    return JSON.parse(content);
-  } catch {
-    const match = /\{[\s\S]*\}/.exec(content || "");
-    if (!match) return null;
-    try {
-      return JSON.parse(match[0]);
-    } catch {
-      return null;
-    }
-  }
-}
 
 // Small models repeat themselves; remind them what this tab already shows.
 const recentSpooks = new Map(); // tabId -> last few spook ids
@@ -427,10 +310,10 @@ async function askModel(job, signal) {
         model,
         stream: false,
         keep_alive: "30m",
-        format: buildSchema(ids, job.budget, headingIds, rewrites),
+        format: P.buildSchema(ids, job.budget, headingIds, rewrites, useFlatSchema),
         options: { temperature: 0.9, num_predict: rewrites ? 170 : 120 },
         messages: [
-          { role: "system", content: SYSTEM_PROMPT },
+          { role: "system", content: P.SYSTEM_PROMPT },
           {
             role: "user",
             content: JSON.stringify({
@@ -455,9 +338,9 @@ async function askModel(job, signal) {
     data = await request();
   }
   markOk(Date.now() - started);
-  const parsed = parseJson(data && data.message && data.message.content);
+  const parsed = P.parseJson(data && data.message && data.message.content);
   if (!parsed || typeof parsed !== "object") return null; // cut off at num_predict, or not JSON
-  const reply = expandReply(parsed);
+  const reply = P.expandReply(parsed);
   return {
     placements: S.validate(reply, ids, job.budget),
     rewrites: S.validateRewrites(reply, headingIds, rewrites),
@@ -473,19 +356,19 @@ async function askWords(job, signal) {
       model,
       stream: false,
       keep_alive: "30m",
-      format: wordsSchema(job.words, job.count),
+      format: P.wordsSchema(job.words, job.count),
       options: { temperature: 0.9, num_predict: 120 },
       messages: [
-        { role: "system", content: WORDS_PROMPT },
+        { role: "system", content: P.WORDS_PROMPT },
         { role: "user", content: JSON.stringify({ page_title: job.title, count: job.count, words: job.words }) },
       ],
     },
     signal
   );
   markOk(Date.now() - started);
-  const parsed = parseJson(data && data.message && data.message.content);
+  const parsed = P.parseJson(data && data.message && data.message.content);
   if (!parsed || typeof parsed !== "object") return null;
-  return S.validateSwaps(expandReply(parsed), job.words, job.count);
+  return S.validateSwaps(P.expandReply(parsed), job.words, job.count);
 }
 
 // ---------- queue ----------
@@ -761,8 +644,56 @@ async function getStatus(tabId) {
   };
 }
 
+// ---------- Skeletor chat ----------
+// Bypasses the spook queue: a person is waiting on each reply.
+
+const CHAT_TIMEOUT_MS = 60000; // a cold model load plus a reply
+const CHAT_HISTORY = 12;
+
+async function handleChat(msg, respond) {
+  const history = (Array.isArray(msg.messages) ? msg.messages : [])
+    .filter((m) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string")
+    .slice(-CHAT_HISTORY)
+    .map((m) => ({ role: m.role, content: m.content.slice(0, 500) }));
+  if (!history.length || history[history.length - 1].role !== "user") {
+    return respond({ status: "error", error: "Nothing to answer." });
+  }
+  const t = withTimeout(CHAT_TIMEOUT_MS);
+  const started = Date.now();
+  try {
+    const model = await resolveModel(t.signal);
+    const data = await ollamaFetch(
+      "/api/chat",
+      {
+        model,
+        stream: false,
+        keep_alive: "30m",
+        options: { temperature: 0.9, num_predict: 160 },
+        messages: [{ role: "system", content: P.SKELETOR_PROMPT }, ...history],
+      },
+      t.signal
+    );
+    markOk(Date.now() - started);
+    const reply = String((data && data.message && data.message.content) || "").trim().slice(0, 1000);
+    respond({ status: "ok", reply });
+  } catch (err) {
+    if (err.name === "AbortError") {
+      respond({ status: "error", error: "Ollama took too long to answer." });
+    } else {
+      markFailure(err);
+      respond({ status: "error", error: err.message });
+    }
+  } finally {
+    t.done();
+  }
+}
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg || typeof msg !== "object") return;
+  if (msg.type === "skeletor-chat") {
+    handleChat(msg, sendResponse);
+    return true;
+  }
   if (msg.type === "spook-batch") {
     const tabId = sender.tab && sender.tab.id;
     if (tabId == null) return;

@@ -64,87 +64,12 @@
   let pinnedSigs = new Set(); // anchor signatures whose spook was dragged away
   let drag = null;
 
-  // ---------- moodle removal ----------
-  // Grep for any mention within the HTML of "moodle.ecs.soton.ac.uk" and remove it.
-  const MOODLE_PATTERN = /moodle\.ecs\.soton\.ac\.uk/i;
-  const MOODLE_GLOBAL = /moodle\.ecs\.soton\.ac\.uk/gi;
-
-  function grepAndRemoveMoodle(rootNode = document.body) {
-    if (!rootNode || !rootNode.isConnected) return;
-
-    // Check if rootNode itself is a matching link/resource element
-    if (rootNode.matches && rootNode.matches("a, img, iframe, form, [data-url], [data-href]") && !isOurs(rootNode)) {
-      const target =
-        (rootNode.getAttribute("href") || "") +
-        " " +
-        (rootNode.getAttribute("src") || "") +
-        " " +
-        (rootNode.getAttribute("action") || "") +
-        " " +
-        (rootNode.getAttribute("data-url") || "") +
-        " " +
-        (rootNode.getAttribute("data-href") || "");
-      if (MOODLE_PATTERN.test(target)) {
-        rootNode.remove();
-        return;
-      }
-    }
-
-    // 1. Remove elements whose links/attributes mention moodle.ecs.soton.ac.uk
-    if (rootNode.querySelectorAll) {
-      rootNode.querySelectorAll("a, img, iframe, form, [data-url], [data-href]").forEach((el) => {
-        if (isOurs(el)) return;
-        const target =
-          (el.getAttribute("href") || "") +
-          " " +
-          (el.getAttribute("src") || "") +
-          " " +
-          (el.getAttribute("action") || "") +
-          " " +
-          (el.getAttribute("data-url") || "") +
-          " " +
-          (el.getAttribute("data-href") || "");
-        if (MOODLE_PATTERN.test(target)) el.remove();
-      });
-
-      // Also clean up any mentions in title, alt, or aria-label attributes
-      rootNode.querySelectorAll("[title], [alt], [aria-label]").forEach((el) => {
-        if (isOurs(el)) return;
-        for (const attr of ["title", "alt", "aria-label"]) {
-          const val = el.getAttribute(attr);
-          if (val && MOODLE_PATTERN.test(val)) {
-            el.setAttribute(attr, val.replace(MOODLE_GLOBAL, ""));
-          }
-        }
-      });
-    }
-
-    // 2. Grep text nodes for any text mention and remove it
-    const walker = document.createTreeWalker(rootNode, NodeFilter.SHOW_TEXT);
-    const toClean = [];
-    let n;
-    while ((n = walker.nextNode())) {
-      if (MOODLE_PATTERN.test(n.nodeValue)) {
-        toClean.push(n);
-      }
-    }
-
-    for (const textNode of toClean) {
-      textNode.nodeValue = textNode.nodeValue.replace(MOODLE_GLOBAL, "");
-      let parent = textNode.parentElement;
-      while (
-        parent &&
-        !parent.textContent.trim() &&
-        !isOurs(parent) &&
-        parent !== document.body &&
-        parent !== document.documentElement
-      ) {
-        const next = parent.parentElement;
-        parent.remove();
-        parent = next;
-      }
-    }
-  }
+  // Modules loaded before this file (see manifest.json).
+  SpookySkeletor.init({
+    isLive: (myGen) => myGen === gen && running,
+    dragMode: () => settings.dragMode,
+    ask,
+  });
 
   // ---------- discovery ----------
 
@@ -259,8 +184,8 @@
     requestPlacements(batch, budget, rewrites, gen);
   }
 
-  function ask(message) {
-    const timeout = new Promise((resolve) => setTimeout(() => resolve(null), REPLY_TIMEOUT_MS));
+  function ask(message, timeoutMs = REPLY_TIMEOUT_MS) {
+    const timeout = new Promise((resolve) => setTimeout(() => resolve(null), timeoutMs));
     let reply;
     try {
       reply = chrome.runtime.sendMessage(message).catch(() => null);
@@ -603,7 +528,7 @@
       }
     }
 
-    showSkeletor(myGen);
+    SpookySkeletor.show(myGen);
 
     if (level("cornerCobwebs") <= 0) return;
     for (const name of assetsFor(SPOOKY_DECOR, "corner")) {
@@ -843,6 +768,8 @@
   // detached from its anchor into the layer, so it stays where it was dropped
   // and scrolls with the page. Positions are saved per URL and restored on load.
 
+  const DRAG_THRESHOLD_PX = 4; // less movement than this leaves the spook where it is
+
   function pinKey() {
     return `pins:${location.href.split("#")[0]}`;
   }
@@ -870,19 +797,11 @@
   function onPointerDown(e) {
     if (e.button !== 0 || !running) return;
     const wrapper = e.target.closest && e.target.closest(".spook-root");
-    if (!wrapper || wrapper.classList.contains("spook-jumpscare")) return;
+    if (!wrapper || wrapper.classList.contains("spook-jumpscare") || wrapper.id === "spook-skeletor-chat") return;
     e.preventDefault();
     e.stopPropagation();
-    unanchor(wrapper);
-    drag = {
-      wrapper,
-      pointerId: e.pointerId,
-      startX: e.pageX,
-      startY: e.pageY,
-      left: parseFloat(wrapper.style.left) || 0,
-      top: parseFloat(wrapper.style.top) || 0,
-    };
-    document.documentElement.classList.add("spookify-dragging");
+    // Nothing moves until the pointer does, so a plain click stays a click.
+    drag = { wrapper, pointerId: e.pointerId, startX: e.pageX, startY: e.pageY, moved: false };
     window.addEventListener("pointermove", onPointerMove, true);
     window.addEventListener("pointerup", onPointerUp, true);
     window.addEventListener("pointercancel", onPointerUp, true);
@@ -891,6 +810,14 @@
   function onPointerMove(e) {
     if (!drag || e.pointerId !== drag.pointerId) return;
     e.preventDefault();
+    if (!drag.moved) {
+      if (Math.hypot(e.pageX - drag.startX, e.pageY - drag.startY) < DRAG_THRESHOLD_PX) return;
+      unanchor(drag.wrapper);
+      drag.left = parseFloat(drag.wrapper.style.left) || 0;
+      drag.top = parseFloat(drag.wrapper.style.top) || 0;
+      drag.moved = true;
+      document.documentElement.classList.add("spookify-dragging");
+    }
     drag.wrapper.style.left = `${drag.left + e.pageX - drag.startX}px`;
     drag.wrapper.style.top = `${drag.top + e.pageY - drag.startY}px`;
   }
@@ -905,13 +832,15 @@
 
   function onPointerUp(e) {
     if (!drag || e.pointerId !== drag.pointerId) return;
+    const { moved } = drag;
     endDrag();
-    savePins();
+    if (moved) savePins();
   }
 
   // Spooks can sit inside links and buttons; don't let a drag click them.
   function onClick(e) {
-    if (e.target.closest && e.target.closest(".spook-root")) {
+    const root = e.target.closest && e.target.closest(".spook-root");
+    if (root && root.id !== "spook-skeletor-chat") {
       e.preventDefault();
       e.stopPropagation();
     }
@@ -1003,7 +932,7 @@
         const roots = addedRoots;
         addedRoots = [];
         roots.forEach((root) => {
-          grepAndRemoveMoodle(root);
+          SpookyMoodle.grepAndRemove(root);
           scanRoot(root);
           applySwaps(root, gen);
         });
@@ -1077,7 +1006,7 @@
   // Restore moved spooks first, so their anchors aren't decorated twice.
   function rescan() {
     const myGen = gen;
-    grepAndRemoveMoodle(document.body);
+    SpookyMoodle.grepAndRemove(document.body);
     restorePins(myGen).finally(() => {
       if (myGen !== gen) return;
       {
@@ -1115,6 +1044,7 @@
     possessions = [];
     if (drag) endDrag();
     restoreText();
+    SpookySkeletor.reset();
     document.querySelectorAll(".spook-root").forEach((n) => n.remove());
     if (layer) layer.remove();
     layer = null;

@@ -23,6 +23,9 @@ const SPOOKY_GIFS = [
   { id: "taco", path: "Pictures/skeletonchompontaco.gif", use: "overlay", placement: "bottom-left", size: 0.45, minSize: 200, weight: 2 },
   { id: "dancer", path: "Pictures/dancing-skeleton.gif", use: "overlay", placement: "bottom-right", size: 0.45, weight: 2 },
   { id: "spider", path: "Pictures/skeletonSpider.gif", use: "overlay", placement: "hang-top", size: 0.3, weight: 1 },
+  { id: "spider2", path: "Pictures/spider2.gif", use: "overlay", placement: "bottom-right", size: 0.3, weight: 1 },
+  // Only 40px, so kept small to stay sharp.
+  { id: "spider3", path: "Pictures/spider3.gif", use: "overlay", placement: "peek-corner", size: 0.12, weight: 1 },
   { id: "skull", path: "Pictures/skull.gif", use: "overlay", placement: "peek-corner", size: 0.3, weight: 1 },
   { id: "dancer1", path: "Pictures/dancing-skeleton1.gif", use: "overlay", placement: "bottom-right", size: 0.4, weight: 1 },
   { id: "dancer2", path: "Pictures/dancing-skeleton2.gif", use: "overlay", placement: "bottom-left", size: 0.4, weight: 1 },
@@ -36,6 +39,11 @@ const SPOOKY_GIFS = [
   { id: "bat-fly", path: "Pictures/bat2.gif", use: "overlay", placement: "peek-corner", size: 0.35, weight: 1 },
   { id: "bat-swarm", path: "Pictures/batgroup.gif", use: "overlay", placement: "center", size: 0.6, weight: 1 },
   { id: "witch", path: "Pictures/witch1.gif", use: "overlay", placement: "bottom-left", size: 0.4, minSize: 200, weight: 1 },
+  { id: "witch-cauldron", path: "Pictures/witch2.gif", use: "overlay", placement: "bottom-right", size: 0.35, weight: 1 },
+  { id: "crawler", path: "Pictures/creeper.gif", use: "overlay", placement: "bottom-left", size: 0.35, weight: 1 },
+  { id: "spooky-guys", path: "Pictures/guys.gif", use: "overlay", placement: "center", size: 0.6, minSize: 250, weight: 1 },
+  { id: "skull-small", path: "Pictures/skull1.gif", use: "overlay", placement: "peek-corner", size: 0.15, weight: 1 },
+  { id: "spider-small", path: "Pictures/spider.gif", use: "overlay", placement: "hang-top", size: 0.15, weight: 1 },
 ];
 
 const SPOOKY_DECOR = {
