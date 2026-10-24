@@ -105,6 +105,7 @@
       const node = entry.target;
       io.unobserve(node);
       if (!qualifies(node, entry.boundingClientRect)) continue;
+      if (node.tagName === "IMG" && Math.random() < settings.intensity / 10 && coverWithGif(node)) continue;
       const id = `a${anchorCounter++}`;
       node.dataset.spookAnchor = id;
       anchors.set(id, node);
@@ -234,6 +235,55 @@
     animIo.observe(wrapper);
   }
 
+  // ---------- components (spooky-components/components.js) ----------
+
+  const DECOR_SCATTER = ["ghost", "bat", "pumpkin", "tombstone"];
+  const MAX_DECOR = 12;
+
+  function pickOne(list) {
+    return list[Math.floor(Math.random() * list.length)];
+  }
+
+  // Lay a random GIF over an image. Images that get one aren't sent to the model.
+  function coverWithGif(img) {
+    let gif;
+    try {
+      gif = createSpookyGif(pickOne(SPOOKY_GIFS));
+    } catch {
+      return false; // extension reloaded: getURL throws
+    }
+    gif.style.cssText = "width:100%;height:100%;object-fit:cover;pointer-events:none;";
+    const box = document.createElement("div");
+    box.className = "spook-root spook-box spook-gif";
+    box.appendChild(gif);
+    const l = ensureLayer();
+    l.appendChild(box);
+    placeBox(box, img.getBoundingClientRect(), l.getBoundingClientRect());
+    overlays.push({ box, anchor: img });
+    anchors.set(`g${anchorCounter++}`, img);
+    img.dataset.spookDone = "gif";
+    return true;
+  }
+
+  // Scatter SVG decor over the page with placeRandomly, plus the viewport-fixed corner cobwebs.
+  function scatterDecor(myGen) {
+    if (myGen !== gen || !running || !document.body) return;
+    const vh = window.innerHeight || 800;
+    const pageHeight = document.documentElement.scrollHeight;
+    const count = Math.min(MAX_DECOR, Math.ceil((settings.intensity * pageHeight) / (3 * vh) / 2));
+    for (let i = 0; i < count; i++) placeRandomly(createSpookyDecor(pickOne(DECOR_SCATTER)));
+
+    const webLeft = createSpookyDecor("cobweb");
+    const webRight = createSpookyDecor("cobweb");
+    webRight.style.left = "auto";
+    webRight.style.right = "0";
+    webRight.style.transform = "scaleX(-1)";
+    for (const fixed of [webLeft, webRight]) {
+      fixed.classList.add("spook-root");
+      document.body.appendChild(fixed);
+    }
+  }
+
   function repositionAll() {
     repositionQueued = false;
     if (!layer || !overlays.length) return;
@@ -308,7 +358,7 @@
     document.addEventListener("scroll", onInnerScroll, { capture: true, passive: true });
     window.addEventListener("popstate", checkUrl);
     urlTimer = setInterval(checkUrl, 1000);
-    idle(() => scanRoot(document.body));
+    rescan();
   }
 
   function clearSpooks() {
@@ -355,7 +405,15 @@
   function reset() {
     if (!running) return;
     clearSpooks();
-    idle(() => scanRoot(document.body));
+    rescan();
+  }
+
+  function rescan() {
+    const myGen = gen;
+    idle(() => {
+      scanRoot(document.body);
+      idle(() => scatterDecor(myGen));
+    });
   }
 
   function applyEnabled() {

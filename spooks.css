@@ -366,3 +366,10 @@
   from { height: 0; }
   to { height: var(--len); }
 }
+
+/* ---------- GIF over an image (spooky-components) ---------- */
+.spook-gif img {
+  display: block !important;
+  max-width: none !important;
+  filter: none !important;
+}

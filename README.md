@@ -5,6 +5,7 @@ A browser extension (Manifest V3) that makes every web page spooky.
 - **Instant theme.** Every page turns dark with an orange and black palette at first paint. This is plain CSS, so it never slows the page down.
 - **Model-placed spooks.** A local [Ollama](https://ollama.com) model looks at small batches of page elements near where you're reading. It decides which pre-defined decoration goes where: ghosts, bats, spiders, cobwebs, pumpkins, glowing eyes, tombstones, creepy captions and blood drips.
 - **Never blocks the page.** The page loads exactly as it would without the extension. Spooks fade in a few seconds later, and more appear as you scroll.
+- **GIFs and decorations.** Some images get a spooky GIF laid over them as you scroll; more images get one at higher intensity. SVG ghosts, bats, pumpkins and tombstones are scattered across the page, with cobwebs in the top corners. These are placed at random locally, without the model.
 - **Works offline.** If Ollama isn't running, spooks are placed at random instead.
 
 The model only picks element ids, spook ids and positions, plus a short line of text for tombstones and captions. The extension validates that and builds the decorations itself, so the model never injects markup into the page.
@@ -65,6 +66,8 @@ Browse normally. Click the toolbar icon to open the popup:
 | `boot.js` | Tiny `document_start` script that switches the theme off if the extension is disabled. |
 | `spooks.js` | The spook catalog, the validator for model output and the random fallback. Shared by the page and the background worker. |
 | `spooks.css` | Styles and animations for the spooks. |
+| `spooky-components/components.js` | The GIF list, the SVG decorations and `placeRandomly`, which scatters them over the page. |
+| `Pictures/` | The GIFs laid over page images. |
 | `content.js` | Finds elements lazily as they near the viewport, batches them, asks the background worker for placements and renders them. |
 | `background.js` | Per-tab request queue, the Ollama call, the Origin header rule and a cache of past answers. |
 | `popup.html`, `popup.js` | Settings and status. |

@@ -106,6 +106,8 @@ function placeRandomly(el) {
   el.style.left = `${Math.floor(Math.random() * maxX)}px`;
   el.style.top = `${Math.floor(Math.random() * maxY)}px`;
   el.style.zIndex = "2147483647";
+  // spook-root: skipped by the theme, hidden when disabled, removed on re-spook.
+  el.classList.add("spook-root");
   document.body.appendChild(el);
   return el;
 }
