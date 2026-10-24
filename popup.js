@@ -115,6 +115,29 @@ async function refresh() {
   if (list.childElementCount !== names.length) {
     list.replaceChildren(...names.map((n) => Object.assign(document.createElement("option"), { value: n })));
   }
+
+  refreshSwaps();
+}
+
+// The words the page's content script swapped, as "from → to" rows.
+let shownSwaps = "";
+async function refreshSwaps() {
+  if (tabId == null) return;
+  const reply = await chrome.tabs.sendMessage(tabId, { type: "get-swaps" }).catch(() => null);
+  const swaps = (reply && reply.swaps) || [];
+  const key = JSON.stringify(swaps);
+  if (key === shownSwaps) return; // don't rebuild while the user scrolls the list
+  shownSwaps = key;
+  const span = (cls, text) => Object.assign(document.createElement("span"), { className: cls, textContent: text });
+  $("swaps-list").replaceChildren(
+    ...swaps.map(({ from, to }) => {
+      const li = document.createElement("li");
+      li.append(span("from", from), span("muted", "→"), span("to", to));
+      return li;
+    })
+  );
+  $("swaps-count").textContent = swaps.length ? `(${swaps.length})` : "";
+  $("swaps-empty").hidden = swaps.length > 0;
 }
 
 enabledEl.addEventListener("change", () => chrome.storage.sync.set({ enabled: enabledEl.checked }));

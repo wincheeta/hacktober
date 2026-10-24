@@ -1020,9 +1020,11 @@
     }
   });
 
-  chrome.runtime.onMessage.addListener((msg) => {
+  chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg && msg.type === "respook") reset();
     if (msg && msg.type === "unpin") unpinAll();
+    // For the popup's list of swapped words.
+    if (msg && msg.type === "get-swaps") sendResponse({ swaps: swapMap ? [...swapMap].map(([from, to]) => ({ from, to })) : [] });
   });
 
   const STORED = { enabled: true, intensity: 5, dragMode: false, tuning: null };
