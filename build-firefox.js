@@ -1,7 +1,6 @@
-// Builds a Firefox copy of the extension in dist/firefox.
-// manifest.json is written for Chrome, which rejects `background.scripts` in
-// Manifest V3. Firefox has no `service_worker` support, so it needs that key
-// instead (background.js then gets spooks.js from the page, not importScripts).
+// Builds a Firefox-only copy of the extension in dist/firefox. Optional:
+// manifest.json already loads in Firefox through `background.scripts`. This
+// copy drops the `service_worker` key Firefox doesn't use, e.g. for packaging.
 //
 // Usage: node build-firefox.js, then load dist/firefox/manifest.json in Firefox.
 "use strict";

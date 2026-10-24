@@ -38,17 +38,15 @@ OLLAMA_ORIGINS="chrome-extension://*,moz-extension://*" ollama serve
 2. Turn on **Developer mode**.
 3. Click **Load unpacked** and select this directory.
 
+Chrome may warn that `background.scripts` is ignored. That key is there for Firefox, and the warning is harmless.
+
 **Firefox (121+)**
 
-Firefox needs a slightly different manifest (it runs the background as scripts, not a service worker), so build a Firefox copy first:
-
-```sh
-node build-firefox.js
-```
-
 1. Open `about:debugging#/runtime/this-firefox`.
-2. Click **Load Temporary Add-on…** and select `dist/firefox/manifest.json`. Re-run the build after each change.
+2. Click **Load Temporary Add-on…** and select `manifest.json` in this directory. After a change, click **Reload**.
 3. If the popup shows **Allow access to Ollama**, click it. Also allow the extension to run on all sites when Firefox asks.
+
+Both browsers use the same manifest: Chrome runs `background.service_worker`, Firefox runs `background.scripts`. `node build-firefox.js` still writes a Firefox-only copy to `dist/firefox` (without the `service_worker` key) if you want one, for example to package it.
 
 ## Using it
 

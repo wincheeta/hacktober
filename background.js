@@ -1,7 +1,7 @@
 // Spookify background worker: per-tab request queue, Ollama client and cache.
 // Chrome runs this as a service worker (spooks.js and modules/prompts.js via
-// importScripts); Firefox runs it as an event page with those listed first by
-// build-firefox.js.
+// importScripts); Firefox runs it as an event page with those listed first in
+// the manifest's background.scripts.
 if (typeof importScripts === "function" && !self.Spookify) importScripts("spooks.js", "modules/prompts.js");
 
 const S = self.Spookify;
