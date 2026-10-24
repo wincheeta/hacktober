@@ -13,7 +13,8 @@ const SPOOKY_CONFIG = {
     gifOverlays: 5, // chance an eligible image gets a GIF: level / 10
     decor: 5, // scattered SVG decor: about level / 2 per three screens, capped by maxDecor
     cornerCobwebs: 4, // 0 hides the corner cobwebs, anything else shows them
-    jumpscare: 10, // chance per page of one jump-scare: (level / 10)^2, so 3 = 9%, 5 = 25%, 10 = always
+    jumpscare: 3, // chance per page of one jump-scare: (level / 10)^2, so 3 = 9%, 5 = 25%, 10 = always
+    skeletor: 5, // chance per page of the Skeletor fact bubble: level / 10
   },
   maxDecor: 12,
   jumpscare: {

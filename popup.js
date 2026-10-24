@@ -21,6 +21,7 @@ const TUNING = [
   { path: ["levels", "decor"], label: "Scattered decorations", min: 0, max: 10, step: 1 },
   { path: ["levels", "cornerCobwebs"], label: "Corner cobwebs", min: 0, max: 10, step: 1 },
   { path: ["levels", "jumpscare"], label: "Jump-scare chance", min: 0, max: 10, step: 1 },
+  { path: ["levels", "skeletor"], label: "Skeletor facts", min: 0, max: 10, step: 1 },
   { path: ["maxDecor"], label: "Max decorations per page", min: 0, max: 40, step: 1 },
   { path: ["jumpscare", "minDelayMs"], label: "Jump-scare earliest after", min: 0, max: 60000, step: 500, format: seconds },
   { path: ["jumpscare", "cooldownMs"], label: "Jump-scare cooldown", min: 0, max: 600000, step: 5000, format: seconds },

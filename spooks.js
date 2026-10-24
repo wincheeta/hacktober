@@ -421,7 +421,9 @@
       if (!s || typeof s !== "object") continue;
       const from = String(s.from || "").toLowerCase();
       const to = swapText(s.to);
-      if (!allowed.has(from) || used.has(from) || !to || to.toLowerCase() === from) continue;
+      // Words only: small models sometimes leak JSON punctuation into the string.
+      if (!/^\p{L}[\p{L}'’ -]*$/u.test(to)) continue;
+      if (!allowed.has(from) || used.has(from) || to.toLowerCase() === from) continue;
       out.push({ from, to });
       used.add(from);
     }

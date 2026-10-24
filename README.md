@@ -80,8 +80,8 @@ The flow for a page:
 1. The theme applies at first paint.
 2. After the page has loaded and the browser is idle, an `IntersectionObserver` picks up headings, images, paragraphs, nav, header, footer, articles and buttons within about 1.5 screens of the viewport.
 3. Elements are sent in batches of up to 8. Each batch gets a budget of up to 3 spooks, based on the intensity setting.
-4. The background worker queues batches per tab and handles the newest first, because that's nearest where you're looking. Batches older than 10 seconds are dropped, and a request is cancelled when its tab closes or navigates.
-5. Ollama gets a short prompt and a JSON schema with one variant per spook, so it must reply with valid placements. The prompt asks for compact JSON because output tokens dominate the response time on CPU, and it lists the spooks the tab already shows so small models vary their picks. Each request times out after 25 seconds and the model is kept loaded for 30 minutes.
+4. The background worker queues batches per tab and handles the newest first, because that's nearest where you're looking. Only the newest 3 batches per tab wait, batches older than 20 seconds are dropped (the page decorates those at random), and a request is cancelled when its tab closes or navigates.
+5. Ollama gets a short prompt and a JSON schema with one variant per spook, so it must reply with valid placements. The prompt asks for compact JSON with one-letter keys because output tokens dominate the response time on CPU, and it lists the spooks the tab already shows so small models vary their picks. Each request times out after 40 seconds and the model is kept loaded for 30 minutes.
 6. The page validates the reply and renders the spooks. Anything already on screen is drawn as an overlay, so text you're reading never jumps. Only elements still below the screen get decorations inserted into the page flow.
 7. A `MutationObserver` and URL check pick up infinite scroll and single-page-app navigation.
 8. Once per page, the 40 most common words on it go to the model in a separate request, which runs before any queued batch. The schema only lets the model pick words from that list. The swaps are applied by changing text node values, never markup, and new content gets them too. Headings are rewritten from the same batch request as the spooks, and only when their text is in a single text node.
@@ -103,6 +103,7 @@ The defaults live in [spooky-components/config.js](spooky-components/config.js);
 | `decor` | Scattered SVG decorations, about half this many per three screens, up to `maxDecor`. |
 | `cornerCobwebs` | 0 hides the corner cobwebs. |
 | `jumpscare` | Chance of one jump-scare per page: (level ÷ 10)². 3 is about 9%, 10 is every page. |
+| `skeletor` | Chance per page of Skeletor and his fact bubble: level ÷ 10. |
 
 The popup slider scales all of them: effective level = level × slider ÷ 5. The `jumpscare` block sets the earliest time, the cooldown (shared across tabs) and how long it shows.
 
@@ -134,4 +135,4 @@ There is no build step. Edit the files directly.
 
 ## Performance notes
 
-On a CPU-only machine with `llama3.2:3b`, a batch takes roughly 5 to 12 seconds, and the first one after the model loads takes longer. The page doesn't wait for any of it. A GPU or a smaller model brings this down to a second or two.
+On a CPU-only machine with `llama3.2:3b`, a batch takes roughly 5 to 8 seconds, and the first one after the model loads takes longer (the worker reloads the model when you open a page after it has been idle for 25 minutes). The page doesn't wait for any of it. A GPU or a smaller model brings this down to a second or two.

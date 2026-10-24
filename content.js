@@ -16,7 +16,7 @@
   const FLUSH_QUIET_MS = 300;
   const LOOKAHEAD = "0px 0px 150% 0px";
   const MAX_CANDIDATES = 1500;
-  const REPLY_TIMEOUT_MS = 45000; // > background stale window + request timeout
+  const REPLY_TIMEOUT_MS = 65000; // > background stale window + request timeout
   // Text we never rewrite: code, form fields, editors and our own spooks.
   const NO_SWAP = "script, style, noscript, code, pre, kbd, samp, textarea, input, select, option, svg, [contenteditable=''], [contenteditable='true'], .spook-root, .spook-letters, #spook-layer";
   const MAX_TEXT_NODES = 3000;
@@ -112,8 +112,23 @@
     const text =
       tag === "img"
         ? collapse(node.alt || node.title || "image")
-        : collapse(node.textContent);
+        : collapse(originalText(node));
     return { id, tag, text: text.slice(0, 80) };
+  }
+
+  // The element's text as the page wrote it, without our word swaps, rewrites
+  // or in-flow spooks, so cache keys and pinned-spook signatures stay the same
+  // on every visit.
+  function originalText(node) {
+    let text = "";
+    const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+    for (let n; (n = walker.nextNode()); ) {
+      if (n.parentElement && n.parentElement.closest(".spook-root")) continue;
+      const saved = originals.get(n);
+      text += saved ? saved.text : n.nodeValue;
+      if (text.length > 400) break; // describe() keeps 80 characters
+    }
+    return text;
   }
 
   function onIntersect(entries) {
@@ -292,14 +307,14 @@
   }
 
   // Walk text nodes in idle chunks, calling fn on each eligible one.
-  function walkText(rootNode, myGen, fn, done) {
+  function walkText(rootNode, myGen, fn, done, limit = Infinity) {
     if (!rootNode || !rootNode.isConnected) return;
     const walker = document.createTreeWalker(rootNode, NodeFilter.SHOW_TEXT);
     let count = 0;
     const step = (deadline) => {
       if (myGen !== gen || !running) return;
       let node;
-      while ((node = walker.nextNode()) && count < MAX_TEXT_NODES) {
+      while (count < limit && (node = walker.nextNode())) {
         count++;
         if (node.nodeValue.trim() && swappable(node)) fn(node);
         if (count % 100 === 0 && deadline.timeRemaining() < 2) return idle(step);
@@ -326,7 +341,8 @@
       () => {
         const words = [...freq].sort((a, b) => b[1] - a[1]).slice(0, 40).map(([w]) => w);
         if (words.length) requestSwaps(words, count, myGen);
-      }
+      },
+      MAX_TEXT_NODES
     );
   }
 
@@ -504,6 +520,7 @@
   function showSkeletor(myGen) {
     if (myGen !== gen || !running || !document.body) return;
     if (document.getElementById("spook-skeletor")) return;
+    if (Math.random() >= level("skeletor") / 10) return;
 
     let gifUrl;
     try {

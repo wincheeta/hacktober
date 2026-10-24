@@ -8,8 +8,10 @@ const OLLAMA = "http://localhost:11434";
 const DEFAULTS = { enabled: true, model: "", intensity: 5 }; // model "" = auto-detect
 const PREFERRED_MODEL = "llama3.2:3b";
 const AUTO_MODEL_TTL_MS = 60000;
-const REQUEST_TIMEOUT_MS = 25000; // covers a cold model load on CPU-only machines
-const STALE_MS = 10000;
+const REQUEST_TIMEOUT_MS = 40000; // a cold model load plus an uncached prompt takes ~25s on CPU
+const STALE_MS = 20000; // > one CPU batch (~5-8s) plus the words job ahead of it
+const MAX_QUEUED_PER_TAB = 3; // older batches fall back to random spooks at once
+const REWARM_AFTER_MS = 25 * 60000; // keep_alive is 30m
 const FAILING_RETRY_MS = 20000;
 const MAX_GLOBAL = 1; // Ollama works through requests one at a time anyway.
 const CACHE_LIMIT = 800;
@@ -37,10 +39,12 @@ const status = {
   lastError: "",
   lastFailAt: 0,
   lastLatencyMs: 0,
+  lastModelUseAt: 0,
 };
 
 function markOk(latencyMs) {
   status.online = true;
+  status.lastModelUseAt = Date.now();
   status.failing = false;
   status.lastError = "";
   if (latencyMs) status.lastLatencyMs = latencyMs;
@@ -224,37 +228,35 @@ function wordsKey(url) {
 
 // ---------- prompt ----------
 
-// Output tokens dominate latency on CPU (~8 tokens/s for a 3B model), so the
-// prompt asks for compact JSON: about 50 tokens per batch instead of 100+.
+// Output tokens dominate latency on CPU (~7 tokens/s for a 3B model), so
+// replies use one-letter keys and leave out `p` when a spook has only one
+// position: about 36 tokens for three placements instead of 55. A shorter
+// prompt also keeps an uncached first request (~40 prompt tokens/s) quick.
+const shortDescription = (d) => d.replace(/ \(good for[^)]*\)/, "");
 const SYSTEM_PROMPT = [
-  "You decorate web pages for Halloween.",
-  "You receive a few page elements (anchors) near where the user is reading, and a budget.",
-  "Pick at most `budget` anchors and give each one spook that suits it.",
-  "",
-  "Spooks (id: what it looks like [allowed positions]):",
-  ...S.catalog.map((s) => `- ${s.id}: ${s.description} [${s.positions.join(", ")}]`),
-  "",
-  "Rules:",
-  "- Use each anchor at most once, and use a different spook for each anchor.",
-  "- Avoid spooks listed in `recently_used`; the page already has those.",
-  "- When there is a heading, image or footer, make one of your picks a creepy_caption.",
-  "- Use only a position listed for that spook. `possess` means the spook changes the element itself instead of adding a decoration.",
-  "- Make at least one pick a `possess` spook when the budget allows.",
-  `- Only ${S.catalog.filter((s) => s.needsText).map((s) => s.id).join(", ")} take \`text\`: a playful, spooky, family-friendly line of at most 8 words that riffs on the anchor's text.`,
-  "- If `rewrites` is above 0, also rewrite up to that many h1/h2/h3 anchors into a spooky version of the same idea, about the same length.",
-  "- Reply with compact single-line JSON with no spaces or newlines, for example:",
-  '{"placements":[{"anchor":"a3","spook":"ghost","position":"overlay"},{"anchor":"a9","spook":"creepy_caption","position":"after","text":"Here lies the comment section"}],"rewrites":[{"anchor":"a2","text":"The Price of Your Soul"}]}',
+  "You decorate web pages for Halloween. You get a few page elements (anchors) near where the user is reading.",
+  "Pick at most `budget` anchors and give each a different spook that suits it.",
+  "Spooks (id: look [positions], possess = changes the element itself):",
+  ...S.catalog.map((s) => {
+    const where = s.positions.length > 1 ? ` [${s.positions.join(",")}]` : s.positions[0] === "possess" ? " [possess]" : "";
+    return `- ${s.id}: ${shortDescription(s.description)}${where}`;
+  }),
+  "Rules: avoid spooks in `recently_used`; include one creepy_caption for a heading, image or footer; include one possess spook when the budget allows.",
+  `\`t\` (only ${S.catalog.filter((s) => s.needsText).map((s) => s.id).join(", ")}): a playful, family-friendly line of at most 8 words that riffs on the anchor's text.`,
+  "If `rewrites` is above 0, also rewrite up to that many h1/h2/h3 anchors into a spooky version of the same idea, about the same length.",
+  "Reply as compact JSON. a=anchor, s=spook, p=position (only for spooks with several positions), t=text. Example:",
+  '{"placements":[{"a":"a3","s":"ghost"},{"a":"a9","s":"creepy_caption","p":"after","t":"Here lies the comment section"}],"rewrites":[{"a":"a2","t":"The Price of Your Soul"}]}',
 ].join("\n");
 
 const WORDS_PROMPT = [
   "You rename everyday web page words into Halloween words.",
-  "You receive the page title, a list of common words from the page, and `count`.",
+  "You get the page title, a list of common words from the page, and `count`.",
   "Pick up to `count` words from the list and give each a spooky, family-friendly replacement of one or two words",
   "that keeps the same part of speech and still makes sense in a sentence (cart -> coffin, search -> seance, team -> coven).",
   "Every replacement must be clearly Halloween: ghosts, graves, bones, witches, potions, monsters, curses. Never a plain synonym.",
   "Prefer words that are easy to spot on the page: navigation, buttons, nouns from headings.",
-  "Use only words from the list as `from`. Reply with compact single-line JSON, for example:",
-  '{"swaps":[{"from":"cart","to":"coffin"},{"from":"login","to":"summon"}]}',
+  "Use only words from the list. Reply as compact JSON, f=from, t=to, for example:",
+  '{"swaps":[{"f":"cart","t":"coffin"},{"f":"login","t":"summon"}]}',
 ].join("\n");
 
 // Preferred schema: one variant per spook, so positions are always valid and
@@ -263,25 +265,29 @@ const WORDS_PROMPT = [
 let useFlatSchema = false;
 
 function buildSchema(ids, budget, headingIds, rewrites) {
-  const anchor = { type: "string", enum: ids };
+  const a = { type: "string", enum: ids };
   const items = useFlatSchema
     ? {
         type: "object",
         properties: {
-          anchor,
-          spook: { type: "string", enum: S.catalog.map((s) => s.id) },
-          position: { type: "string", enum: S.POSITIONS },
-          text: { type: "string" },
+          a,
+          s: { type: "string", enum: S.catalog.map((s) => s.id) },
+          p: { type: "string", enum: S.POSITIONS },
+          t: { type: "string" },
         },
-        required: ["anchor", "spook", "position"],
+        required: ["a", "s"],
       }
     : {
         anyOf: S.catalog.map((s) => {
-          const properties = { anchor, spook: { type: "string", const: s.id }, position: { type: "string", enum: s.positions } };
-          const required = ["anchor", "spook", "position"];
+          const properties = { a, s: { type: "string", const: s.id } };
+          const required = ["a", "s"];
+          if (s.positions.length > 1) {
+            properties.p = { type: "string", enum: s.positions };
+            required.push("p");
+          }
           if (s.needsText) {
-            properties.text = { type: "string", maxLength: S.MAX_TEXT };
-            required.push("text");
+            properties.t = { type: "string", maxLength: S.MAX_TEXT };
+            required.push("t");
           }
           return { type: "object", properties, required, additionalProperties: false };
         }),
@@ -293,8 +299,8 @@ function buildSchema(ids, budget, headingIds, rewrites) {
       maxItems: rewrites,
       items: {
         type: "object",
-        properties: { anchor: { type: "string", enum: headingIds }, text: { type: "string", maxLength: S.MAX_TEXT } },
-        required: ["anchor", "text"],
+        properties: { a: { type: "string", enum: headingIds }, t: { type: "string", maxLength: S.MAX_TEXT } },
+        required: ["a", "t"],
       },
     };
   }
@@ -311,14 +317,24 @@ function wordsSchema(words, count) {
         items: {
           type: "object",
           properties: {
-            from: { type: "string", enum: words },
-            to: { type: "string", maxLength: S.MAX_SWAP_TEXT },
+            f: { type: "string", enum: words },
+            t: { type: "string", maxLength: S.MAX_SWAP_TEXT },
           },
-          required: ["from", "to"],
+          required: ["f", "t"],
         },
       },
     },
     required: ["swaps"],
+  };
+}
+
+// Expand the model's one-letter keys into the names the validators use.
+function expandReply(parsed) {
+  const list = (v) => (Array.isArray(v) ? v.filter((x) => x && typeof x === "object") : []);
+  return {
+    placements: list(parsed.placements).map((p) => ({ anchor: p.a, spook: p.s, position: p.p, text: p.t })),
+    rewrites: list(parsed.rewrites).map((r) => ({ anchor: r.a, text: r.t })),
+    swaps: list(parsed.swaps).map((w) => ({ from: w.f, to: w.t })),
   };
 }
 
@@ -357,7 +373,7 @@ async function askModel(job, signal) {
         stream: false,
         keep_alive: "30m",
         format: buildSchema(ids, job.budget, headingIds, rewrites),
-        options: { temperature: 0.9, num_predict: rewrites ? 220 : 160 },
+        options: { temperature: 0.9, num_predict: rewrites ? 170 : 120 },
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
           {
@@ -385,9 +401,11 @@ async function askModel(job, signal) {
   }
   markOk(Date.now() - started);
   const parsed = parseJson(data && data.message && data.message.content);
+  if (!parsed || typeof parsed !== "object") return null; // cut off at num_predict, or not JSON
+  const reply = expandReply(parsed);
   return {
-    placements: S.validate(parsed, ids, job.budget),
-    rewrites: S.validateRewrites(parsed, headingIds, rewrites),
+    placements: S.validate(reply, ids, job.budget),
+    rewrites: S.validateRewrites(reply, headingIds, rewrites),
   };
 }
 
@@ -401,7 +419,7 @@ async function askWords(job, signal) {
       stream: false,
       keep_alive: "30m",
       format: wordsSchema(job.words, job.count),
-      options: { temperature: 0.9, num_predict: 140 },
+      options: { temperature: 0.9, num_predict: 120 },
       messages: [
         { role: "system", content: WORDS_PROMPT },
         { role: "user", content: JSON.stringify({ page_title: job.title, count: job.count, words: job.words }) },
@@ -410,7 +428,9 @@ async function askWords(job, signal) {
     signal
   );
   markOk(Date.now() - started);
-  return S.validateSwaps(parseJson(data && data.message && data.message.content), job.words, job.count);
+  const parsed = parseJson(data && data.message && data.message.content);
+  if (!parsed || typeof parsed !== "object") return null;
+  return S.validateSwaps(expandReply(parsed), job.words, job.count);
 }
 
 // ---------- queue ----------
@@ -429,7 +449,13 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   recentSpooks.delete(tabId);
 });
 chrome.tabs.onUpdated.addListener((tabId, info) => {
-  if (info.status === "loading") dropTab(tabId);
+  if (info.status !== "loading") return;
+  dropTab(tabId);
+  // The model unloads after keep_alive; reload it while the page is still loading.
+  if (status.lastModelUseAt && Date.now() - status.lastModelUseAt > REWARM_AFTER_MS) {
+    status.lastModelUseAt = Date.now();
+    warmUp();
+  }
 });
 
 function dropTab(tabId) {
@@ -478,6 +504,11 @@ async function run(job) {
   try {
     if (job.kind === "words") {
       const swaps = await askWords(job, controller.signal);
+      if (!swaps) {
+        console.warn(`[Spookify] tab ${job.tabId}: unreadable words reply after ${secs()}s; page uses its word list`);
+        job.respond({ status: "error", error: "unreadable reply" });
+        return;
+      }
       console.info(
         `[Spookify] tab ${job.tabId}: ${job.words.length} words -> ${swaps.length} swaps in ${secs()}s`,
         swaps.map((s) => `${s.from}->${s.to}`).join(", ")
@@ -487,7 +518,14 @@ async function run(job) {
       job.respond({ status: "ok", swaps });
       return;
     }
-    const { placements, rewrites } = await askModel(job, controller.signal);
+    const result = await askModel(job, controller.signal);
+    if (!result) {
+      // Don't cache: these anchors deserve another try, and the page falls back now.
+      console.warn(`[Spookify] tab ${job.tabId}: unreadable batch reply after ${secs()}s; page uses fallback`);
+      job.respond({ status: "error", error: "unreadable reply" });
+      return;
+    }
+    const { placements, rewrites } = result;
     console.info(
       `[Spookify] tab ${job.tabId}: ${job.anchors.length} anchors -> ${placements.length} spooks in ${secs()}s`,
       [
@@ -521,6 +559,8 @@ async function run(job) {
   } finally {
     clearTimeout(timer);
     if (inflight.get(job.tabId) === controller) inflight.delete(job.tabId);
+    // The words job jumped the queue; time spent on it doesn't make batches stale.
+    if (job.kind === "words") for (const queued of queues.get(job.tabId) || []) queued.t += Date.now() - started;
     active--;
     pump();
   }
@@ -575,7 +615,14 @@ async function handleBatch(tabId, msg, respond) {
   }
 
   if (!queues.has(tabId)) queues.set(tabId, []);
-  queues.get(tabId).push({ ...batch, anchors: uncached, budget, rewrites, cached, cachedRewrites, tabId, respond, t: Date.now() });
+  const queue = queues.get(tabId);
+  queue.push({ ...batch, anchors: uncached, budget, rewrites, cached, cachedRewrites, tabId, respond, t: Date.now() });
+  // Only the newest few batches are worth waiting for; answer the rest now.
+  const batches = queue.filter((job) => job.kind !== "words");
+  for (const job of batches.slice(0, Math.max(0, batches.length - MAX_QUEUED_PER_TAB))) {
+    queue.splice(queue.indexOf(job), 1);
+    job.respond({ status: "stale" });
+  }
   pump();
 }
 
