@@ -6,8 +6,14 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["content.js"],
+      "js": ["spooky-components/components.js", "content.js"],
       "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["Pictures/*.gif"],
+      "matches": ["<all_urls>"]
     }
   ],
   "browser_specific_settings": {
