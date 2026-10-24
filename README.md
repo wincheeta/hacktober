@@ -5,7 +5,7 @@ A browser extension (Manifest V3) that makes every web page spooky.
 - **Instant theme.** Every page turns dark with an orange and black palette at first paint. This is plain CSS, so it never slows the page down.
 - **Model-placed spooks.** A local [Ollama](https://ollama.com) model looks at small batches of page elements near where you're reading. It decides which pre-defined decoration goes where: ghosts, bats, spiders, cobwebs, pumpkins, glowing eyes, tombstones, creepy captions and blood drips.
 - **Never blocks the page.** The page loads exactly as it would without the extension. Spooks fade in a few seconds later, and more appear as you scroll.
-- **GIFs and decorations.** Some images get a spooky GIF laid over them as you scroll; more images get one at higher intensity. SVG ghosts, bats, pumpkins and tombstones are scattered across the page, with cobwebs in the top corners. These are placed at random locally, without the model.
+- **GIFs and decorations.** Some images get a spooky GIF laid over them as you scroll, each in its own spot: covering the image, peeking from a corner, or dangling from the top. SVG ghosts, bats, pumpkins and tombstones are scattered across the page, with cobwebs in the top corners. Very occasionally a jump-scare flashes up. These are placed at random locally, without the model.
 - **Works offline.** If Ollama isn't running, spooks are placed at random instead.
 
 The model only picks element ids, spook ids and positions, plus a short line of text for tombstones and captions. The extension validates that and builds the decorations itself, so the model never injects markup into the page.
@@ -53,7 +53,8 @@ Browse normally. Click the toolbar icon to open the popup:
 |---|---|
 | Spook every page | Turns the theme and spooks on or off instantly. |
 | Ollama model | Any model Ollama has installed. The list fills from `ollama list`. |
-| Intensity | Roughly how many spooks appear per three screens of scrolling. |
+| Intensity | Master volume for every kind of spook. At the middle position, the levels in `config.js` apply as written. |
+| Tuning | One slider per value in `config.js`: each kind of spook, max decorations and the jump-scare timings. |
 | Status | Whether Ollama is online, whether the model is loaded, and how many batches are queued for this tab. |
 | Re-spook this page | Clears the decorations and asks the model again. |
 
@@ -66,7 +67,8 @@ Browse normally. Click the toolbar icon to open the popup:
 | `boot.js` | Tiny `document_start` script that switches the theme off if the extension is disabled. |
 | `spooks.js` | The spook catalog, the validator for model output and the random fallback. Shared by the page and the background worker. |
 | `spooks.css` | Styles and animations for the spooks. |
-| `spooky-components/components.js` | The GIF list, the SVG decorations and `placeRandomly`, which scatters them over the page. |
+| `spooky-components/config.js` | How much of each kind of spook to show. See [Tuning](#tuning). |
+| `spooky-components/components.js` | The GIFs and SVG decorations with their attributes, and `placeRandomly`, which scatters decorations over the page. |
 | `Pictures/` | The GIFs laid over page images. |
 | `content.js` | Finds elements lazily as they near the viewport, batches them, asks the background worker for placements and renders them. |
 | `background.js` | Per-tab request queue, the Ollama call, the Origin header rule and a cache of past answers. |
@@ -83,6 +85,40 @@ The flow for a page:
 7. A `MutationObserver` and URL check pick up infinite scroll and single-page-app navigation.
 
 Answers are cached per element for the browser session, so revisiting a page shows the same spooks without asking the model again.
+
+## Tuning
+
+Open **Tuning** in the popup to change any of these with a slider while you browse. The page re-spooks as soon as you let go. Your slider values are saved in the browser, and **Reset to config.js** goes back to the file's values.
+
+The defaults live in [spooky-components/config.js](spooky-components/config.js); edit it and reload the extension to change them. Each kind of spook has its own level from 0 (off) to 10:
+
+| Level | Controls |
+|---|---|
+| `modelSpooks` | Spooks placed by Ollama, about this many per three screens. |
+| `gifOverlays` | Chance that an image gets a GIF: level ÷ 10. |
+| `decor` | Scattered SVG decorations, about half this many per three screens, up to `maxDecor`. |
+| `cornerCobwebs` | 0 hides the corner cobwebs. |
+| `jumpscare` | Chance of one jump-scare per page: (level ÷ 10)². 3 is about 9%, 10 is every page. |
+
+The popup slider scales all of them: effective level = level × slider ÷ 5. The `jumpscare` block sets the earliest time, the cooldown (shared across tabs) and how long it shows.
+
+### Adding a GIF or decoration
+
+Drop the GIF in `Pictures/` and add one line to `SPOOKY_GIFS` in [components.js](spooky-components/components.js):
+
+```js
+{ id: "witch", path: "Pictures/witch.gif", use: "overlay", placement: "bottom-left", size: 0.35, weight: 1 },
+```
+
+| Attribute | Meaning |
+|---|---|
+| `use` | `overlay` goes over page images. `jumpscare` flashes full screen. |
+| `placement` | For overlays: `cover`, `center`, `bottom-left`, `bottom-right`, `peek-corner` or `hang-top`. |
+| `size` | Width as a share of the image, for every placement except `cover`. |
+| `minSize` | Smallest image width in px the GIF may go on. |
+| `weight` | Relative chance of being picked within its use. |
+
+Decorations in `SPOOKY_DECOR` have a `use` too. `scatter` decorations are placed at random over the page, `corner` ones are fixed in the top corners, and `edge` is currently unused, which is how the blood drip is kept off.
 
 ## Developing
 

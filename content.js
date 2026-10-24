@@ -105,7 +105,7 @@
       const node = entry.target;
       io.unobserve(node);
       if (!qualifies(node, entry.boundingClientRect)) continue;
-      if (node.tagName === "IMG" && Math.random() < settings.intensity / 10 && coverWithGif(node)) continue;
+      if (node.tagName === "IMG" && Math.random() < level("gifOverlays") / 10 && coverWithGif(node)) continue;
       const id = `a${anchorCounter++}`;
       node.dataset.spookAnchor = id;
       anchors.set(id, node);
@@ -126,7 +126,7 @@
   function budgetLeft() {
     const vh = window.innerHeight || 800;
     const covered = Math.max(maxBottom, window.scrollY + vh);
-    const allowed = Math.ceil((settings.intensity * covered) / (3 * vh));
+    const allowed = Math.ceil((level("modelSpooks") * covered) / (3 * vh));
     return allowed - placed - reserved;
   }
 
@@ -237,50 +237,80 @@
 
   // ---------- components (spooky-components/components.js) ----------
 
-  const DECOR_SCATTER = ["ghost", "bat", "pumpkin", "tombstone"];
-  const MAX_DECOR = 12;
+  // Per-type levels from config.js, overridden by the popup's tuning sliders,
+  // then scaled by the master intensity slider (5 = as written).
+  const BASE_CONFIG = typeof SPOOKY_CONFIG !== "undefined" ? SPOOKY_CONFIG : {};
+  let CONFIG = BASE_CONFIG;
+  let JUMPSCARE = null;
+  applyTuning(null);
+  let jumpTimer = null;
+  let jumpUnlisten = null;
 
-  function pickOne(list) {
-    return list[Math.floor(Math.random() * list.length)];
+  function applyTuning(tuning) {
+    const t = tuning || {};
+    CONFIG = {
+      ...BASE_CONFIG,
+      ...t,
+      levels: { ...BASE_CONFIG.levels, ...t.levels },
+      jumpscare: { ...BASE_CONFIG.jumpscare, ...t.jumpscare },
+    };
+    JUMPSCARE = { minDelayMs: 8000, cooldownMs: 120000, durationMs: 1200, ...CONFIG.jumpscare };
   }
 
-  // Lay a random GIF over an image. Images that get one aren't sent to the model.
+  function level(name) {
+    const base = CONFIG.levels && typeof CONFIG.levels[name] === "number" ? CONFIG.levels[name] : 5;
+    return (base * settings.intensity) / 5;
+  }
+
+  // Lay an `overlay` GIF over an image, at the GIF's placement. Images that get one aren't sent to the model.
   function coverWithGif(img) {
+    const rect = img.getBoundingClientRect();
+    const fits = assetsFor(SPOOKY_GIFS, "overlay").filter((g) => !g.minSize || rect.width >= g.minSize);
+    if (!fits.length) return false;
+    const entry = pickWeighted(fits);
     let gif;
     try {
-      gif = createSpookyGif(pickOne(SPOOKY_GIFS));
+      gif = createSpookyGif(entry);
     } catch {
       return false; // extension reloaded: getURL throws
     }
-    gif.style.cssText = "width:100%;height:100%;object-fit:cover;pointer-events:none;";
+    const placement = entry.placement || "cover";
+    gif.style.cssText = "pointer-events:none;"; // size and position come from spook-gif--<placement>
     const box = document.createElement("div");
-    box.className = "spook-root spook-box spook-gif";
+    box.className = `spook-root spook-box spook-gif spook-gif--${placement}`;
+    box.dataset.spookGif = entry.id;
+    box.style.setProperty("--spook-gif-size", `${(entry.size || 0.4) * 100}%`);
     box.appendChild(gif);
     const l = ensureLayer();
     l.appendChild(box);
-    placeBox(box, img.getBoundingClientRect(), l.getBoundingClientRect());
+    placeBox(box, rect, l.getBoundingClientRect());
     overlays.push({ box, anchor: img });
     anchors.set(`g${anchorCounter++}`, img);
     img.dataset.spookDone = "gif";
     return true;
   }
 
-  // Scatter SVG decor over the page with placeRandomly, plus the viewport-fixed corner cobwebs.
+  // Scatter `scatter` decor over the page with placeRandomly, plus the viewport-fixed `corner` cobwebs.
   function scatterDecor(myGen) {
     if (myGen !== gen || !running || !document.body) return;
     const vh = window.innerHeight || 800;
     const pageHeight = document.documentElement.scrollHeight;
-    const count = Math.min(MAX_DECOR, Math.ceil((settings.intensity * pageHeight) / (3 * vh) / 2));
-    for (let i = 0; i < count; i++) placeRandomly(createSpookyDecor(pickOne(DECOR_SCATTER)));
+    const scatter = assetsFor(SPOOKY_DECOR, "scatter");
+    const maxDecor = CONFIG.maxDecor ?? 12;
+    const count = Math.min(maxDecor, Math.ceil((level("decor") * pageHeight) / (3 * vh) / 2));
+    if (scatter.length) for (let i = 0; i < count; i++) placeRandomly(createSpookyDecor(pickWeighted(scatter)));
 
-    const webLeft = createSpookyDecor("cobweb");
-    const webRight = createSpookyDecor("cobweb");
-    webRight.style.left = "auto";
-    webRight.style.right = "0";
-    webRight.style.transform = "scaleX(-1)";
-    for (const fixed of [webLeft, webRight]) {
-      fixed.classList.add("spook-root");
-      document.body.appendChild(fixed);
+    if (level("cornerCobwebs") <= 0) return;
+    for (const name of assetsFor(SPOOKY_DECOR, "corner")) {
+      const left = createSpookyDecor(name);
+      const right = createSpookyDecor(name);
+      right.style.left = "auto";
+      right.style.right = "0";
+      right.style.transform = "scaleX(-1)";
+      for (const fixed of [left, right]) {
+        fixed.classList.add("spook-root");
+        document.body.appendChild(fixed);
+      }
     }
 
     showSkeletor(myGen);
@@ -351,6 +381,56 @@
     container.appendChild(img);
 
     document.body.appendChild(container);
+  }
+
+  // Maybe arm one jump-scare: after minDelayMs, it fires on the next scroll.
+  function maybeJumpscare(myGen) {
+    const scares = assetsFor(SPOOKY_GIFS, "jumpscare");
+    const chance = Math.min(1, level("jumpscare") / 10) ** 2;
+    if (!scares.length || Math.random() >= chance) return;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    jumpTimer = setTimeout(() => {
+      jumpTimer = null;
+      const fire = () => {
+        jumpUnlisten = null;
+        if (myGen === gen && running) jumpscare(pickWeighted(scares));
+      };
+      window.addEventListener("scroll", fire, { once: true, passive: true });
+      jumpUnlisten = () => window.removeEventListener("scroll", fire);
+    }, JUMPSCARE.minDelayMs);
+  }
+
+  function cancelJumpscare() {
+    clearTimeout(jumpTimer);
+    jumpTimer = null;
+    if (jumpUnlisten) jumpUnlisten();
+    jumpUnlisten = null;
+  }
+
+  async function jumpscare(entry) {
+    // Cooldown is shared across tabs so browsing doesn't become a string of scares.
+    try {
+      const { lastJumpscare = 0 } = await chrome.storage.local.get("lastJumpscare");
+      if (Date.now() - lastJumpscare < JUMPSCARE.cooldownMs) return;
+      await chrome.storage.local.set({ lastJumpscare: Date.now() });
+    } catch {
+      return; // extension reloaded
+    }
+    if (!running) return;
+    let gif;
+    try {
+      gif = createSpookyGif(entry);
+    } catch {
+      return;
+    }
+    gif.style.cssText = "pointer-events:none;";
+    const scare = document.createElement("div");
+    scare.className = "spook-root spook-jumpscare";
+    scare.dataset.spookGif = entry.id;
+    scare.style.setProperty("--spook-jump-ms", `${JUMPSCARE.durationMs}ms`);
+    scare.appendChild(gif);
+    document.body.appendChild(scare);
+    setTimeout(() => scare.remove(), JUMPSCARE.durationMs);
   }
 
   function repositionAll() {
@@ -440,6 +520,7 @@
     }
     clearTimeout(flushTimer);
     clearTimeout(mutationTimer);
+    cancelJumpscare();
     flushTimer = mutationTimer = null;
     pending = [];
     addedRoots = [];
@@ -483,6 +564,7 @@
       scanRoot(document.body);
       idle(() => scatterDecor(myGen));
     });
+    maybeJumpscare(myGen);
   }
 
   function applyEnabled() {
@@ -494,6 +576,9 @@
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== "sync") return;
     if (changes.intensity) settings.intensity = Number(changes.intensity.newValue) || 5;
+    if (changes.tuning) applyTuning(changes.tuning.newValue);
+    // Apply new levels now, not just to spooks placed later.
+    if ((changes.intensity || changes.tuning) && !changes.enabled) reset();
     if (changes.enabled) {
       settings.enabled = changes.enabled.newValue !== false;
       applyEnabled();
@@ -505,11 +590,12 @@
   });
 
   chrome.storage.sync
-    .get({ enabled: true, intensity: 5 })
-    .catch(() => ({ enabled: true, intensity: 5 }))
+    .get({ enabled: true, intensity: 5, tuning: null })
+    .catch(() => ({ enabled: true, intensity: 5, tuning: null }))
     .then((s) => {
       settings.enabled = s.enabled !== false;
       settings.intensity = Number(s.intensity) || 5;
+      applyTuning(s.tuning);
       applyEnabled();
     });
 })();
