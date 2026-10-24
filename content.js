@@ -18,7 +18,7 @@
   const MAX_CANDIDATES = 1500;
   const REPLY_TIMEOUT_MS = 45000; // > background stale window + request timeout
   // Text we never rewrite: code, form fields, editors and our own spooks.
-  const NO_SWAP = "script, style, noscript, code, pre, kbd, samp, textarea, input, select, option, svg, [contenteditable=''], [contenteditable='true'], .spook-root, #spook-layer";
+  const NO_SWAP = "script, style, noscript, code, pre, kbd, samp, textarea, input, select, option, svg, [contenteditable=''], [contenteditable='true'], .spook-root, .spook-letters, #spook-layer";
   const MAX_TEXT_NODES = 3000;
   const STOPWORDS = new Set(
     ("that this with from have your will more about what when which their there them they been were would " +
@@ -43,6 +43,7 @@
   let reserved = 0;
   let maxBottom = 0;
   let overlays = []; // { box, anchor }
+  let possessions = []; // undo functions for spooks that changed page elements
   let layer = null;
   let io = null;
   let animIo = null;
@@ -225,6 +226,15 @@
     const rect = anchor.getBoundingClientRect();
     let position = p.position;
 
+    if (position === "possess") {
+      const undo = spook.possess ? spook.possess(anchor, p.text) : null;
+      if (!undo) return; // e.g. haunted_letters on an image
+      possessions.push(undo);
+      anchor.dataset.spookDone = spook.id;
+      placed++;
+      return;
+    }
+
     // Never shift content the reader can see: in-flow insertion is only
     // allowed for anchors still below the viewport.
     if (position !== "overlay" && rect.top <= window.innerHeight) position = "overlay";
@@ -343,7 +353,7 @@
     const texts = [];
     const walker = document.createTreeWalker(heading, NodeFilter.SHOW_TEXT);
     for (let n; (n = walker.nextNode()); ) if (n.nodeValue.trim()) texts.push(n);
-    if (texts.length !== 1 || texts[0].parentElement.closest(".spook-root")) return;
+    if (texts.length !== 1 || texts[0].parentElement.closest(".spook-root, .spook-letters")) return;
     const node = texts[0];
     const original = originals.has(node) ? originals.get(node).text : node.nodeValue;
     rewritten.push({ el: heading, title: heading.getAttribute("title") });
@@ -445,6 +455,75 @@
         document.body.appendChild(fixed);
       }
     }
+
+    showSkeletor(myGen);
+  }
+
+  const DEPRESSING_FACTS = [
+    "Every atom in your body came from an exploding star, just to end up sitting here scrolling.",
+    "In about 5 billion years, the Sun will expand and boil Earth's oceans, erasing all evidence of humanity.",
+    "You have already met almost everyone who will ever genuinely remember your existence.",
+    "One day, someone will say your name out loud for the very last time, and then you'll be completely forgotten.",
+    "Sharks are older than trees, Saturn's rings, and any sense of accomplishment you felt today.",
+    "Over 99% of all species that have ever lived on Earth are now extinct. We're on the list!",
+    "Your skeleton is completely wet right now, and it will remain so until long after you're gone.",
+    "There are over 3 trillion trees on Earth, and not a single one cares about your deadlines.",
+    "Sloths sometimes mistake their own arms for tree branches, grab them, and plunge to their doom.",
+    "Your brain decides what you do up to 10 seconds before you are even aware of making the decision.",
+    "Every second, your cells accumulate mutations that your body will eventually fail to repair.",
+    "The universe is expanding into a freezing, completely silent void of eternal nothingness.",
+    "One day, your parents put you down as a child and never picked you up again.",
+    "Somewhere on the calendar is the anniversary of your death, and you pass it every year without knowing.",
+    "In about 4.5 billion years, Andromeda will collide with the Milky Way, dismantling the solar system.",
+    "Elephants will mourn other elephants in their group dying and will hold funerals for them and will even recognize the bones of said elephant and cry out in sadness",
+    "Your dog will mourn you when you die, but your cats will be indifferent",
+    "You share 50% of your DNA with a banana",
+    "Your body contains more bacterial cells than human cells",
+    "There is a single whale that is unable to communicate with any other whale of it's kind due to different frequencies",
+    "if a sheep is not sheared, it will be weighed down and eventually fall over, and ends up starving to death",
+    "Many people go through the last years of their life sad and chronically lonely",
+    "Every 60 seconds, a minute passes - Ali",
+    "If a panda has more than one cub, she often cannot care for both of the babies, and must choose one to survive."
+  ];
+
+  function showSkeletor(myGen) {
+    if (myGen !== gen || !running || !document.body) return;
+    if (document.getElementById("spook-skeletor")) return;
+
+    let gifUrl;
+    try {
+      gifUrl = chrome.runtime.getURL("Pictures/skeletor.gif");
+    } catch {
+      return;
+    }
+
+    const container = document.createElement("div");
+    container.id = "spook-skeletor";
+    container.className = "spook-root spook-skeletor-container";
+
+    const bubble = document.createElement("div");
+    bubble.className = "spook-skeletor-bubble";
+
+    const fact = document.createElement("p");
+    fact.className = "spook-skeletor-fact";
+    fact.textContent = pickOne(DEPRESSING_FACTS);
+
+    const signoff = document.createElement("div");
+    signoff.className = "spook-skeletor-signoff";
+    signoff.textContent = "— Until we meet again!";
+
+    bubble.appendChild(fact);
+    bubble.appendChild(signoff);
+
+    const img = document.createElement("img");
+    img.className = "spook-skeletor-img";
+    img.src = gifUrl;
+    img.alt = "Skeletor";
+
+    container.appendChild(bubble);
+    container.appendChild(img);
+
+    document.body.appendChild(container);
   }
 
   // Maybe arm one jump-scare: after minDelayMs, it fires on the next scroll.
@@ -590,6 +669,8 @@
     pending = [];
     addedRoots = [];
     placed = reserved = maxBottom = observedCount = 0;
+    possessions.forEach((undo) => undo());
+    possessions = [];
     restoreText();
     document.querySelectorAll(".spook-root").forEach((n) => n.remove());
     if (layer) layer.remove();
