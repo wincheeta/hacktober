@@ -248,6 +248,7 @@
     clearTimeout(flushTimer);
     flushTimer = null;
     if (!running || !pending.length) return;
+    if (document.hidden) return whenVisible(flush);
     const batch = pending.splice(0, BATCH_MAX);
     if (pending.length) flushTimer = setTimeout(flush, FLUSH_QUIET_MS);
     const budget = Math.min(S.MAX_PER_BATCH, budgetLeft());
@@ -279,6 +280,11 @@
     });
     if (myGen !== gen || !running) return;
     reserved -= budget;
+    if (document.hidden && !(reply && reply.status === "ok")) {
+      // Cancelled because the tab was hidden: ask again once it's shown.
+      pending.unshift(...batch);
+      return whenVisible(flush);
+    }
 
     const ids = batch.map((a) => a.id);
     let placements;
@@ -439,8 +445,11 @@
   }
 
   async function requestSwaps(words, count, myGen) {
+    const retry = () => myGen === gen && running && requestSwaps(words, count, myGen);
+    if (document.hidden) return whenVisible(retry);
     const reply = await ask({ type: "spook-words", url: location.href, title: document.title.slice(0, 100), words, count });
     if (myGen !== gen || !running) return;
+    if (document.hidden && !(reply && reply.status === "ok")) return whenVisible(retry);
     const swaps =
       reply && reply.status === "ok" ? S.validateSwaps({ swaps: reply.swaps }, words, count) : S.localSwaps(words, count);
     if (!swaps.length) return;
@@ -936,8 +945,43 @@
 
   // ---------- lifecycle ----------
 
+  // ---------- visibility ----------
+  // Only the tab being looked at is spooked and talks to the model. Tabs opened
+  // in the background wait until they're shown, and a tab hidden mid-batch
+  // cancels its model work and picks it up again when it's shown.
+
+  let onShow = [];
+  function whenVisible(fn) {
+    if (!document.hidden) fn();
+    else if (!onShow.includes(fn)) onShow.push(fn);
+  }
+
+  // Free the model for other tabs; replies we were waiting on come back as
+  // cancelled and are retried or ignored by whoever asked.
+  function cancelModelWork() {
+    try {
+      chrome.runtime.sendMessage({ type: "spook-cancel" }).catch(() => {});
+    } catch {
+      // extension reloaded: nothing to cancel
+    }
+  }
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) {
+      if (running) cancelModelWork();
+      return;
+    }
+    const fns = onShow;
+    onShow = [];
+    fns.forEach((fn) => fn());
+  });
+
+  function startWhenIdle() {
+    idle(start);
+  }
+
   function start() {
-    if (running || !document.body) return;
+    if (running || !settings.enabled || !document.body) return;
     running = true;
     io = new IntersectionObserver(onIntersect, { rootMargin: LOOKAHEAD });
     animIo = new IntersectionObserver(
@@ -961,30 +1005,19 @@
     grepAndRemoveMoodle(document.body);
     restorePins(myGen).finally(() => {
       if (myGen !== gen) return;
-      {
-        idle(() => {
-        {
-          scanRoot(document.body);
+      idle(() => {
+        scanRoot(document.body);
         idle(() => scatterDecor(myGen));
         idle(() => collectWords(myGen));
-      };
-          idle(() => scatterDecor(myGen));
-          idle(() => collectWords(myGen));
-        });
-        maybeJumpscare(myGen);
-      }
+      });
+      maybeJumpscare(myGen);
     });
-    maybeJumpscare(myGen);
   }
 
   function clearSpooks() {
     gen++;
     // Free the model for fresh batches instead of finishing ones we'll ignore.
-    try {
-      chrome.runtime.sendMessage({ type: "spook-cancel" }).catch(() => {});
-    } catch {
-      // extension reloaded: nothing to cancel
-    }
+    cancelModelWork();
     clearTimeout(flushTimer);
     clearTimeout(mutationTimer);
     cancelJumpscare();
@@ -1036,7 +1069,7 @@
 
   function applyEnabled() {
     document.documentElement.classList.toggle("spookify-off", !settings.enabled);
-    if (settings.enabled) idle(start);
+    if (settings.enabled) whenVisible(startWhenIdle);
     else stop();
     applyDragMode();
   }
@@ -1046,7 +1079,8 @@
     if (changes.intensity) settings.intensity = Number(changes.intensity.newValue) || 5;
     if (changes.tuning) applyTuning(changes.tuning.newValue);
     // Apply new levels now, not just to spooks placed later.
-    if ((changes.intensity || changes.tuning) && !changes.enabled) reset();
+    // Background tabs re-spook when they're next shown.
+    if ((changes.intensity || changes.tuning) && !changes.enabled) whenVisible(reset);
     if (changes.dragMode) {
       settings.dragMode = changes.dragMode.newValue === true;
       applyDragMode();
