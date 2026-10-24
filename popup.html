@@ -87,9 +87,17 @@
     </label>
   </div>
 
+  <div class="row">
+    <label for="drag-mode">Move spooks by dragging</label>
+    <label class="switch">
+      <input type="checkbox" id="drag-mode">
+      <span class="slider"></span>
+    </label>
+  </div>
+
   <div class="row" style="display:block">
     <label for="model">Ollama model</label>
-    <input type="text" id="model" list="models" spellcheck="false" placeholder="llama3.2:3b">
+    <input type="text" id="model" list="models" spellcheck="false" placeholder="Auto-detect">
     <datalist id="models"></datalist>
   </div>
 
@@ -114,6 +122,7 @@
 
   <button id="grant" class="secondary" hidden>Allow access to Ollama</button>
   <button id="respook">Re-spook this page</button>
+  <button id="unpin" class="secondary">Reset moved spooks on this page</button>
 
   <script src="spooky-components/config.js"></script>
   <script src="popup.js"></script>

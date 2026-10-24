@@ -5,7 +5,9 @@ if (typeof importScripts === "function" && !self.Spookify) importScripts("spooks
 
 const S = self.Spookify;
 const OLLAMA = "http://localhost:11434";
-const DEFAULTS = { enabled: true, model: "llama3.2:3b", intensity: 5 };
+const DEFAULTS = { enabled: true, model: "", intensity: 5 }; // model "" = auto-detect
+const PREFERRED_MODEL = "llama3.2:3b";
+const AUTO_MODEL_TTL_MS = 60000;
 const REQUEST_TIMEOUT_MS = 25000; // covers a cold model load on CPU-only machines
 const STALE_MS = 10000;
 const FAILING_RETRY_MS = 20000;
@@ -86,6 +88,41 @@ async function ollamaFetch(path, body, signal) {
   return res.json();
 }
 
+// ---------- model choice ----------
+// With no model set, use what's installed: the preferred model if present,
+// else the smallest llama, else the smallest chat model (small = fast on CPU).
+
+let autoModel = "";
+let autoCheckedAt = 0;
+
+function pickModel(models) {
+  const chat = models.filter((m) => {
+    const families = (m.details && m.details.families) || [];
+    return m.name && !/embed/i.test(m.name) && !families.some((f) => /bert/i.test(f));
+  });
+  if (chat.some((m) => m.name === PREFERRED_MODEL)) return PREFERRED_MODEL;
+  const bySize = (a, b) => (a.size || 0) - (b.size || 0);
+  const llamas = chat.filter((m) => /llama/i.test(m.name)).sort(bySize);
+  if (llamas.length) return llamas[0].name;
+  return chat.sort(bySize).map((m) => m.name)[0] || "";
+}
+
+function rememberAutoModel(models) {
+  autoModel = pickModel(models);
+  autoCheckedAt = Date.now();
+}
+
+async function resolveModel(signal) {
+  await settingsReady;
+  if (settings.model) return settings.model;
+  if (!autoModel || Date.now() - autoCheckedAt > AUTO_MODEL_TTL_MS) {
+    const tags = await ollamaFetch("/api/tags", null, signal);
+    rememberAutoModel(tags.models || []);
+  }
+  if (!autoModel) throw new OllamaError(`No Ollama models are installed. Run: ollama pull ${PREFERRED_MODEL}`);
+  return autoModel;
+}
+
 function withTimeout(ms) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), ms);
@@ -95,14 +132,14 @@ function withTimeout(ms) {
 // Load the model and evaluate the system prompt once, so Ollama's prompt
 // cache makes the first real batch as fast as later ones.
 async function warmUp() {
-  await settingsReady;
   const t = withTimeout(60000);
   try {
+    const model = await resolveModel(t.signal);
     for (const prompt of [SYSTEM_PROMPT, WORDS_PROMPT]) {
       await ollamaFetch(
         "/api/chat",
         {
-          model: settings.model,
+          model,
           stream: false,
           keep_alive: "30m",
           options: { num_predict: 1 },
@@ -311,11 +348,12 @@ async function askModel(job, signal) {
   const headingIds = job.anchors.filter((a) => S.HEADING_TAGS.has(a.tag)).map((a) => a.id);
   const rewrites = headingIds.length ? job.rewrites : 0;
   const started = Date.now();
+  const model = await resolveModel(signal);
   const request = () =>
     ollamaFetch(
       "/api/chat",
       {
-        model: settings.model,
+        model,
         stream: false,
         keep_alive: "30m",
         format: buildSchema(ids, job.budget, headingIds, rewrites),
@@ -355,10 +393,11 @@ async function askModel(job, signal) {
 
 async function askWords(job, signal) {
   const started = Date.now();
+  const model = await resolveModel(signal);
   const data = await ollamaFetch(
     "/api/chat",
     {
-      model: settings.model,
+      model,
       stream: false,
       keep_alive: "30m",
       format: wordsSchema(job.words, job.count),
@@ -566,17 +605,22 @@ async function getStatus(tabId) {
   const t = withTimeout(2500);
   let models = [];
   let loaded = false;
+  let model = settings.model || autoModel;
   try {
     const [tags, ps] = await Promise.all([
       ollamaFetch("/api/tags", null, t.signal),
       ollamaFetch("/api/ps", null, t.signal).catch(() => ({ models: [] })),
     ]);
     models = (tags.models || []).map((m) => m.name);
-    loaded = (ps.models || []).some((m) => m.name === settings.model || m.model === settings.model);
+    if (!settings.model) rememberAutoModel(tags.models || []);
+    model = settings.model || autoModel;
+    loaded = (ps.models || []).some((m) => m.name === model || m.model === model);
     status.online = true;
-    if (!models.includes(settings.model)) {
-      status.lastError = `Model "${settings.model}" is not installed. Run: ollama pull ${settings.model}`;
-    } else if (status.lastError.startsWith("Ollama is not reachable")) {
+    if (!model) {
+      status.lastError = `No Ollama models are installed. Run: ollama pull ${PREFERRED_MODEL}`;
+    } else if (!models.includes(model)) {
+      status.lastError = `Model "${model}" is not installed. Run: ollama pull ${model}`;
+    } else if (status.lastError.startsWith("Ollama is not reachable") || status.lastError.startsWith("No Ollama models")) {
       status.lastError = "";
       status.failing = false;
     }
@@ -591,7 +635,8 @@ async function getStatus(tabId) {
   return {
     online: status.online,
     error: status.lastError,
-    model: settings.model,
+    model,
+    auto: !settings.model,
     models,
     loaded,
     queued,
