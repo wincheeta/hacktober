@@ -206,7 +206,7 @@ const cacheReady = (session ? session.get("cache") : Promise.resolve({}))
   .then((data) => {
     for (const [k, v] of Object.entries((data && data.cache) || {})) cache.set(k, v);
   })
-  .catch(() => {});
+  .catch(() => { });
 
 let cacheSaveTimer = null;
 function saveCache() {
@@ -214,7 +214,7 @@ function saveCache() {
   cacheSaveTimer = setTimeout(() => {
     cacheSaveTimer = null;
     while (cache.size > CACHE_LIMIT) cache.delete(cache.keys().next().value);
-    session.set({ cache: Object.fromEntries(cache) }).catch(() => {});
+    session.set({ cache: Object.fromEntries(cache) }).catch(() => { });
   }, 1000);
 }
 
@@ -787,4 +787,68 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     warmUp().then(() => sendResponse({ ok: true }));
     return true;
   }
+  if (msg.type === "spook-preload-sound") {
+    ensureOffscreenDoc().catch(() => {});
+    return;
+  }
+  if (msg.type === "spook-play-sound") {
+    playOffscreenSound(msg.url, msg.durationMs);
+    return;
+  }
+  if (msg.type === "spook-stop-sound") {
+    stopOffscreenSound();
+    return;
+  }
 });
+
+let offscreenCreating = null;
+async function ensureOffscreenDoc() {
+  if (typeof Audio !== "undefined") return; // Firefox / event page with DOM
+  if (!chrome.offscreen) return;
+  try {
+    if (typeof chrome.offscreen.hasDocument === "function" && await chrome.offscreen.hasDocument()) {
+      return;
+    }
+  } catch {}
+  if (offscreenCreating) {
+    await offscreenCreating;
+    return;
+  }
+  offscreenCreating = chrome.offscreen.createDocument({
+    url: "offscreen.html",
+    reasons: ["AUDIO_PLAYBACK"],
+    justification: "Preload and play jumpscare sound"
+  }).catch(() => {}).finally(() => { offscreenCreating = null; });
+  await offscreenCreating;
+}
+
+// Pre-warm offscreen document on service worker start
+ensureOffscreenDoc().catch(() => {});
+
+async function playOffscreenSound(url, durationMs) {
+  if (typeof Audio !== "undefined") {
+    try {
+      const a = new Audio(url);
+      a.volume = 1.0;
+      a.play().catch(() => {});
+      if (durationMs) setTimeout(() => { a.pause(); a.currentTime = 0; }, durationMs);
+    } catch {}
+    return;
+  }
+  if (chrome.offscreen) {
+    try {
+      await ensureOffscreenDoc();
+      chrome.runtime.sendMessage({ type: "play-offscreen-audio", url, durationMs }).catch(() => {});
+    } catch (e) {
+      console.warn("Spookify offscreen audio error:", e);
+    }
+  }
+}
+
+async function stopOffscreenSound() {
+  if (chrome.offscreen) {
+    try {
+      chrome.runtime.sendMessage({ type: "stop-offscreen-audio" }).catch(() => {});
+    } catch {}
+  }
+}

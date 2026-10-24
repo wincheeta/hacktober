@@ -496,7 +496,7 @@
     if (!heading || !heading.isConnected || heading.classList.contains("spook-rewritten")) return;
     const texts = [];
     const walker = document.createTreeWalker(heading, NodeFilter.SHOW_TEXT);
-    for (let n; (n = walker.nextNode()); ) if (n.nodeValue.trim()) texts.push(n);
+    for (let n; (n = walker.nextNode());) if (n.nodeValue.trim()) texts.push(n);
     if (texts.length !== 1 || texts[0].parentElement.closest(".spook-root, .spook-letters")) return;
     const node = texts[0];
     const original = originals.has(node) ? originals.get(node).text : node.nodeValue;
@@ -532,6 +532,8 @@
   applyTuning(null);
   let jumpTimer = null;
   let jumpUnlisten = null;
+  let jumpAudio = null;
+  let jumpscareFired = false;
 
   function applyTuning(tuning) {
     const t = tuning || {};
@@ -689,51 +691,84 @@
   // Maybe arm one jump-scare at a random depth of the page (20-80% of the way
   // down); it fires when the reader scrolls past it, but never before minDelayMs.
   function maybeJumpscare(myGen) {
+    if (jumpscareFired) return;
+    if (jumpTimer || jumpUnlisten) return; // Already armed; do not arm multiple times
     const scares = assetsFor(SPOOKY_GIFS, "jumpscare");
     const chance = Math.min(1, level("jumpscare") / 10) ** 2;
     if (!scares.length || Math.random() >= chance) return;
     if (typeof JUMPSCARE_NEVER_MS !== "undefined" && JUMPSCARE.cooldownMs >= JUMPSCARE_NEVER_MS) return;
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
+    // Pre-warm the background offscreen audio player so it is loaded and decoded in RAM
+    try {
+      chrome.runtime.sendMessage({ type: "spook-preload-sound" }).catch(() => {});
+    } catch {}
+
     const depth = 0.2 + Math.random() * 0.6;
     jumpTimer = setTimeout(() => {
       jumpTimer = null;
+      if (jumpscareFired || !running || myGen !== gen) return;
+
       // Captured on document so pages that scroll an inner container count too.
       let target = null;
       const onScroll = (e) => {
+        if (jumpscareFired || !running || myGen !== gen) {
+          if (typeof jumpUnlisten === "function") jumpUnlisten();
+          return;
+        }
         const el = e.target === document ? document.scrollingElement || document.documentElement : e.target;
         if (!el || el.clientHeight < window.innerHeight / 2) return; // a small scrolling widget, not the page
         // Fixed in pixels on the first scroll, so infinite feeds that grow as
         // they're scrolled don't keep pushing it out of reach.
         if (target === null) target = depth * (el.scrollHeight - el.clientHeight);
         if (el.scrollTop < target) return;
-        jumpUnlisten();
-        if (myGen === gen && running) jumpscare(pickWeighted(scares));
+
+        // Immediately mark as fired and unlisten so further scrolling NEVER fires it again!
+        jumpscareFired = true;
+        if (typeof jumpUnlisten === "function") jumpUnlisten();
+        jumpscare(pickWeighted(scares));
       };
-      document.addEventListener("scroll", onScroll, { capture: true, passive: true });
+      // Assign jumpUnlisten BEFORE addEventListener so onScroll never finds it null.
       jumpUnlisten = () => {
         document.removeEventListener("scroll", onScroll, { capture: true });
         jumpUnlisten = null;
       };
+      document.addEventListener("scroll", onScroll, { capture: true, passive: true });
     }, JUMPSCARE.minDelayMs);
   }
 
   function cancelJumpscare() {
     clearTimeout(jumpTimer);
     jumpTimer = null;
-    if (jumpUnlisten) jumpUnlisten();
+    if (typeof jumpUnlisten === "function") jumpUnlisten();
     jumpUnlisten = null;
+    if (jumpAudio) {
+      jumpAudio.pause();
+      jumpAudio.currentTime = 0;
+      jumpAudio = null;
+    }
+    try {
+      chrome.runtime.sendMessage({ type: "spook-stop-sound" }).catch(() => {});
+    } catch {}
   }
 
+  let jumpscareInProgress = false;
   async function jumpscare(entry) {
+    // Synchronous guard: reject any concurrent call before the async storage await.
+    if (jumpscareInProgress) return;
+    jumpscareInProgress = true;
+    if (document.querySelector(".spook-jumpscare")) { jumpscareInProgress = false; return; }
     // Cooldown is shared across tabs so browsing doesn't become a string of scares.
     try {
       const { lastJumpscare = 0 } = await chrome.storage.local.get("lastJumpscare");
-      if (Date.now() - lastJumpscare < JUMPSCARE.cooldownMs) return;
+      if (Date.now() - lastJumpscare < JUMPSCARE.cooldownMs) { jumpscareInProgress = false; return; }
       await chrome.storage.local.set({ lastJumpscare: Date.now() });
     } catch {
+      jumpscareInProgress = false;
       return; // extension reloaded
     }
-    if (!running) return;
+    if (!running) { jumpscareInProgress = false; return; }
+    if (document.querySelector(".spook-jumpscare")) { jumpscareInProgress = false; return; }
     let gif;
     try {
       gif = createSpookyGif(entry);
@@ -746,8 +781,26 @@
     scare.dataset.spookGif = entry.id;
     scare.style.setProperty("--spook-jump-ms", `${JUMPSCARE.durationMs}ms`);
     scare.appendChild(gif);
+
+    // Simultaneously trigger instant audio playback and visual insertion
+    const soundUrl = chrome.runtime.getURL("audio/five-nights-at-freddys-full-scream-sound_2.mp3");
+    try {
+      chrome.runtime.sendMessage({
+        type: "spook-play-sound",
+        url: soundUrl,
+        durationMs: JUMPSCARE.durationMs
+      }).catch(() => {});
+    } catch {}
+
     document.body.appendChild(scare);
-    setTimeout(() => scare.remove(), JUMPSCARE.durationMs);
+
+    setTimeout(() => {
+      scare.remove();
+      jumpscareInProgress = false;
+      try {
+        chrome.runtime.sendMessage({ type: "spook-stop-sound" }).catch(() => {});
+      } catch {}
+    }, JUMPSCARE.durationMs);
   }
 
   function repositionAll() {
@@ -886,7 +939,7 @@
       }));
     const key = pinKey();
     try {
-      (list.length ? chrome.storage.local.set({ [key]: list }) : chrome.storage.local.remove(key)).catch(() => {});
+      (list.length ? chrome.storage.local.set({ [key]: list }) : chrome.storage.local.remove(key)).catch(() => { });
     } catch {
       // extension reloaded: nowhere to save
     }
@@ -1027,12 +1080,18 @@
     grepAndRemoveMoodle(document.body);
     restorePins(myGen).finally(() => {
       if (myGen !== gen) return;
-      idle(() => {
-        scanRoot(document.body);
-        idle(() => scatterDecor(myGen));
-        idle(() => collectWords(myGen));
-      });
-      maybeJumpscare(myGen);
+      {
+        idle(() => {
+          {
+            scanRoot(document.body);
+            idle(() => scatterDecor(myGen));
+            idle(() => collectWords(myGen));
+          };
+          idle(() => scatterDecor(myGen));
+          idle(() => collectWords(myGen));
+        });
+        maybeJumpscare(myGen);
+      }
     });
   }
 
@@ -1040,6 +1099,11 @@
     gen++;
     // Free the model for fresh batches instead of finishing ones we'll ignore.
     cancelModelWork();
+    try {
+      chrome.runtime.sendMessage({ type: "spook-cancel" }).catch(() => { });
+    } catch {
+      // extension reloaded: nothing to cancel
+    }
     clearTimeout(flushTimer);
     clearTimeout(mutationTimer);
     cancelJumpscare();
