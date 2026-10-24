@@ -437,6 +437,46 @@
     return out;
   }
 
+  // Simple English plurals: cat/cats, box/boxes, church/churches, story/stories.
+  // Multi-word replacements inflect their last word ("lost soul" -> "lost souls").
+  function pluralOf(word) {
+    if (/(s|x|z|ch|sh)$/i.test(word)) return `${word}es`;
+    if (/[^aeiou]y$/i.test(word)) return `${word.slice(0, -1)}ies`;
+    return `${word}s`;
+  }
+
+  // The singular of a simple plural, or null if the word doesn't look plural.
+  // Leaves -ss, -us and -is words alone (glass, bonus, analysis).
+  function singularOf(word) {
+    if (word.length > 4 && /[^aeiou]ies$/i.test(word)) return `${word.slice(0, -3)}y`;
+    if (/(s|x|z|ch|sh)es$/i.test(word)) return word.slice(0, -2);
+    if (/[^su'’]s$/i.test(word) && !/is$/i.test(word)) return word.slice(0, -1);
+    return null;
+  }
+
+  // Every lowercase form a swap should match, mapped to its replacement: the
+  // word as given plus its singular or plural, with the replacement in the same
+  // number. Small models often answer a plural with a singular ("stories" ->
+  // "curse"), so a plural word always gets a plural replacement. When the model
+  // swapped both forms of a word itself, its own choices win.
+  function swapForms(swaps) {
+    const forms = new Map();
+    const derived = [];
+    for (const { from, to } of swaps) {
+      const single = singularOf(from);
+      if (single) {
+        const toSingle = singularOf(to) || to;
+        forms.set(from, toSingle === to ? pluralOf(to) : to);
+        derived.push([single, toSingle]);
+      } else {
+        forms.set(from, to);
+        derived.push([pluralOf(from), pluralOf(to)]);
+      }
+    }
+    for (const [form, to] of derived) if (!forms.has(form)) forms.set(form, to);
+    return forms;
+  }
+
   function localSwaps(words, max) {
     const raw = { swaps: words.filter((w) => WORD_SWAPS[w]).map((w) => ({ from: w, to: WORD_SWAPS[w] })) };
     return validateSwaps(raw, words, max);
@@ -476,6 +516,7 @@
     cleanText,
     validateSwaps,
     localSwaps,
+    swapForms,
     validateRewrites,
   };
 })(typeof self !== "undefined" ? self : globalThis);

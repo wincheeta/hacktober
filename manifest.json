@@ -6,8 +6,7 @@
   "permissions": ["storage", "declarativeNetRequestWithHostAccess"],
   "host_permissions": ["http://localhost:11434/*", "http://127.0.0.1:11434/*"],
   "background": {
-    "service_worker": "background.js",
-    "scripts": ["spooks.js", "background.js"]
+    "service_worker": "background.js"
   },
   "action": {
     "default_title": "Spookify",
