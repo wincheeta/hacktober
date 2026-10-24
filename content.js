@@ -458,6 +458,8 @@
     const count = Math.min(maxDecor, Math.ceil((level("decor") * pageHeight) / (3 * vh) / 2));
     if (scatter.length) for (let i = 0; i < count; i++) placeRandomly(createSpookyDecor(pickWeighted(scatter)));
 
+    showSkeletor(myGen);
+
     if (level("cornerCobwebs") <= 0) return;
     for (const name of assetsFor(SPOOKY_DECOR, "corner")) {
       const left = createSpookyDecor(name);
@@ -470,8 +472,6 @@
         document.body.appendChild(fixed);
       }
     }
-
-    showSkeletor(myGen);
   }
 
   const DEPRESSING_FACTS = [
@@ -521,7 +521,7 @@
 
     const fact = document.createElement("p");
     fact.className = "spook-skeletor-fact";
-    fact.textContent = pickOne(DEPRESSING_FACTS);
+    fact.textContent = DEPRESSING_FACTS[Math.floor(Math.random() * DEPRESSING_FACTS.length)];
 
     const signoff = document.createElement("div");
     signoff.className = "spook-skeletor-signoff";

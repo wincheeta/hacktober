@@ -377,11 +377,11 @@
 .spook-skeletor-container {
   position: fixed !important;
   bottom: 16px !important;
-  right: 16px !important;
+  left: 16px !important;
   z-index: 2147483640 !important;
   display: flex !important;
   flex-direction: column !important;
-  align-items: flex-end !important;
+  align-items: flex-start !important;
   pointer-events: none !important;
   max-width: 280px !important;
   filter: drop-shadow(0 6px 16px rgba(0, 0, 0, 0.45)) !important;
@@ -392,10 +392,10 @@
   position: relative !important;
   background: #ffffff !important;
   border: 2px solid #222222 !important;
-  border-radius: 14px 14px 2px 14px !important;
+  border-radius: 14px 14px 14px 2px !important;
   padding: 10px 14px !important;
   margin-bottom: 10px !important;
-  margin-right: 25px !important;
+  margin-left: 25px !important;
   color: #1a1a1a !important;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25) !important;
   pointer-events: none !important;
@@ -407,7 +407,7 @@
   content: "" !important;
   position: absolute !important;
   bottom: -10px !important;
-  right: 20px !important;
+  left: 20px !important;
   width: 0 !important;
   height: 0 !important;
   border-width: 10px 8px 0 8px !important;
@@ -419,7 +419,7 @@
   content: "" !important;
   position: absolute !important;
   bottom: -7px !important;
-  right: 21px !important;
+  left: 21px !important;
   width: 0 !important;
   height: 0 !important;
   border-width: 8px 7px 0 7px !important;
