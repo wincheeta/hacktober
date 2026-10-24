@@ -15,19 +15,26 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "css": ["theme.css", "spooks.css"],
+      "css": ["theme.css", "spooks.css", "modules/skeletor.css"],
       "js": ["boot.js"],
       "run_at": "document_start"
     },
     {
       "matches": ["<all_urls>"],
-      "js": ["spooks.js", "spooky-components/config.js", "spooky-components/components.js", "content.js"],
+      "js": [
+        "spooks.js",
+        "spooky-components/config.js",
+        "spooky-components/components.js",
+        "modules/moodle.js",
+        "modules/skeletor.js",
+        "content.js"
+      ],
       "run_at": "document_idle"
     }
   ],
   "web_accessible_resources": [
     {
-      "resources": ["Pictures/*.gif", "spooky-components/*.svg"],
+      "resources": ["Pictures/*.gif", "Pictures/*.webp", "spooky-components/*.svg"],
       "matches": ["<all_urls>"]
     }
   ],
