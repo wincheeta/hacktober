@@ -71,6 +71,10 @@ class OllamaError extends Error {
 
 async function ollamaFetch(path, body, signal) {
   await originRuleReady;
+  // Thinking models (gemma4, qwen3...) think by default and would spend every
+  // num_predict token on it, leaving the reply empty. Ollama ignores this for
+  // other models.
+  if (path === "/api/chat") body = { think: false, ...body };
   let res;
   try {
     res = await fetch(`${OLLAMA}${path}`, {

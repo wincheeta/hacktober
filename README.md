@@ -55,7 +55,7 @@ Chrome may warn that `background.scripts` is ignored. That key is there for Fire
 2. Click **Load Temporary Add-on…** and select `manifest.json` in this directory. After a change, click **Reload**.
 3. If the popup shows **Allow access to Ollama**, click it. Also allow the extension to run on all sites when Firefox asks.
 
-Both browsers use the same manifest: Chrome runs `background.service_worker`, Firefox runs `background.scripts`. `node build-firefox.js` still writes a Firefox-only copy to `dist/firefox` (without the `service_worker` key) if you want one, for example to package it.
+Both browsers use the same manifest: Chrome runs `background.service_worker`, Firefox runs `background.scripts`. Loading `manifest.json` itself in Firefox shows one harmless warning: Firefox doesn't know the `offscreen` permission, which Chrome needs for the jump-scare sound. `node build-firefox.js` writes a Firefox-only copy to `dist/firefox` without it (and without the `service_worker` key); load `dist/firefox/manifest.json` instead for no warnings, or use it for packaging. Run it again after each change.
 
 ## Using it
 
