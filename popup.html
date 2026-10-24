@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Spookify</title>
+  <style>
+    :root {
+      --bg: #0b0a09;
+      --surface: #1a1410;
+      --text: #e9e2d6;
+      --muted: #9b9184;
+      --orange: #ff7518;
+      --orange-dim: #b34f0f;
+      color-scheme: dark;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      width: 300px;
+      padding: 14px 16px 16px;
+      background: var(--bg);
+      color: var(--text);
+      font: 13px/1.4 system-ui, sans-serif;
+    }
+    h1 {
+      margin: 0 0 12px;
+      font: bold 20px Georgia, serif;
+      color: var(--orange);
+      text-shadow: 0 0 10px rgba(255, 117, 24, 0.5);
+    }
+    .row { display: flex; align-items: center; justify-content: space-between; margin: 10px 0; gap: 8px; }
+    label { color: var(--text); }
+    input[type="text"] {
+      width: 100%;
+      padding: 6px 8px;
+      background: var(--surface);
+      color: var(--text);
+      border: 1px solid var(--orange-dim);
+      border-radius: 6px;
+    }
+    input[type="range"] { flex: 1; accent-color: var(--orange); }
+    .switch { position: relative; width: 40px; height: 22px; flex: none; }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider {
+      position: absolute; inset: 0; cursor: pointer;
+      background: #333; border-radius: 22px; transition: background 0.2s;
+    }
+    .slider::before {
+      content: ""; position: absolute; left: 3px; top: 3px; width: 16px; height: 16px;
+      background: var(--text); border-radius: 50%; transition: transform 0.2s;
+    }
+    .switch input:checked + .slider { background: var(--orange); }
+    .switch input:checked + .slider::before { transform: translateX(18px); background: #000; }
+    .status {
+      margin-top: 12px; padding: 8px 10px; border-radius: 6px;
+      background: var(--surface); border: 1px solid #2c241d;
+    }
+    .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; background: var(--muted); }
+    .dot.ok { background: #5fd35f; box-shadow: 0 0 6px #5fd35f; }
+    .dot.bad { background: #e0442c; box-shadow: 0 0 6px #e0442c; }
+    .muted { color: var(--muted); font-size: 12px; }
+    .error { color: #ff9a7a; font-size: 12px; margin-top: 4px; word-break: break-word; }
+    button {
+      width: 100%; margin-top: 10px; padding: 8px;
+      background: var(--orange); color: #000; font-weight: bold;
+      border: 0; border-radius: 6px; cursor: pointer;
+    }
+    button:hover { background: #ff8c3a; }
+    button.secondary { background: var(--surface); color: var(--orange); border: 1px solid var(--orange-dim); }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+  <h1>🎃 Spookify</h1>
+
+  <div class="row">
+    <label for="enabled">Spook every page</label>
+    <span class="switch">
+      <input type="checkbox" id="enabled">
+      <span class="slider"></span>
+    </span>
+  </div>
+
+  <div class="row" style="display:block">
+    <label for="model">Ollama model</label>
+    <input type="text" id="model" list="models" spellcheck="false" placeholder="llama3.2:3b">
+    <datalist id="models"></datalist>
+  </div>
+
+  <div class="row">
+    <label for="intensity">Intensity</label>
+    <input type="range" id="intensity" min="1" max="10" step="1">
+    <span id="intensity-value">5</span>
+  </div>
+
+  <div class="status">
+    <div><span class="dot" id="dot"></span><span id="status-text">Checking Ollama…</span></div>
+    <div class="muted" id="queue-text"></div>
+    <div class="error" id="error-text" hidden></div>
+  </div>
+
+  <button id="grant" class="secondary" hidden>Allow access to Ollama</button>
+  <button id="respook">Re-spook this page</button>
+
+  <script src="popup.js"></script>
+</body>
+</html>

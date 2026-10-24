@@ -1,0 +1,107 @@
+/*
+ * Spookify theme: dark, orange and black.
+ * Static CSS injected at document_start, so it applies at first paint and
+ * never waits on the model. Everything is scoped to :root:not(.spookify-off)
+ * so the popup toggle can switch it off instantly. Spook decorations
+ * (.spook-root) are excluded so they keep their own colours.
+ */
+
+:root:not(.spookify-off) {
+  --spook-bg: #0b0a09;
+  --spook-surface: #1a1410;
+  --spook-text: #e9e2d6;
+  --spook-orange: #ff7518;
+  --spook-orange-dim: #b34f0f;
+  color-scheme: dark;
+  scrollbar-color: var(--spook-orange) var(--spook-bg);
+}
+
+:root:not(.spookify-off),
+:root:not(.spookify-off) body {
+  background-color: var(--spook-bg) !important;
+  color: var(--spook-text) !important;
+}
+
+/* Every element: transparent background, light text, orange-tinted borders. */
+:root:not(.spookify-off) body *:not(.spook-root):not(.spook-root *) {
+  background-color: transparent !important;
+  color: var(--spook-text) !important;
+  border-color: var(--spook-orange-dim) !important;
+  outline-color: var(--spook-orange-dim) !important;
+}
+
+/* Things that float over content need an opaque background to stay readable. */
+:root:not(.spookify-off) body :is(
+    dialog, [role="dialog"], [role="menu"], [role="listbox"], [role="tooltip"],
+    [aria-modal="true"], [class*="modal"], [class*="dropdown"], [class*="popup"],
+    [class*="popover"], [class*="tooltip"]
+  ):not(.spook-root):not(.spook-root *) {
+  background-color: var(--spook-surface) !important;
+}
+
+/* Form controls, code and table headers sit on the surface colour. */
+:root:not(.spookify-off) body :is(input, textarea, select, button, pre, code, kbd, th):not(.spook-root):not(.spook-root *) {
+  background-color: var(--spook-surface) !important;
+}
+
+:root:not(.spookify-off) body :is(input, textarea, select, button):not(.spook-root):not(.spook-root *) {
+  border: 1px solid var(--spook-orange-dim) !important;
+}
+
+:root:not(.spookify-off) body :is(input, textarea)::placeholder {
+  color: #8f8578 !important;
+}
+
+/* Links and headings glow orange. */
+:root:not(.spookify-off) body :is(a, a *):not(.spook-root):not(.spook-root *) {
+  color: var(--spook-orange) !important;
+}
+
+:root:not(.spookify-off) body :is(a:visited, a:visited *):not(.spook-root):not(.spook-root *) {
+  color: #d9622a !important;
+}
+
+:root:not(.spookify-off) body :is(h1, h2, h3, h1 *, h2 *, h3 *, th):not(.spook-root):not(.spook-root *) {
+  color: var(--spook-orange) !important;
+}
+
+:root:not(.spookify-off) body :is(h1, h2, h3):not(.spook-root):not(.spook-root *) {
+  text-shadow: 0 0 12px rgba(255, 117, 24, 0.35) !important;
+}
+
+:root:not(.spookify-off) ::selection {
+  background: var(--spook-orange) !important;
+  color: #000 !important;
+}
+
+/* Images and video: a mild aged look, not inverted. */
+:root:not(.spookify-off) body :is(img, video, picture, svg image):not(.spook-root *) {
+  filter: sepia(0.35) contrast(1.1) brightness(0.85) !important;
+}
+
+/* WebKit scrollbars (Chrome). Firefox uses scrollbar-color above. */
+:root:not(.spookify-off) ::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+  background: var(--spook-bg);
+}
+
+:root:not(.spookify-off) ::-webkit-scrollbar-thumb {
+  background: var(--spook-orange-dim);
+  border-radius: 6px;
+  border: 2px solid var(--spook-bg);
+}
+
+:root:not(.spookify-off) ::-webkit-scrollbar-thumb:hover {
+  background: var(--spook-orange);
+}
+
+/* Subtle vignette over the whole viewport. Never intercepts clicks. */
+:root:not(.spookify-off)::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2147483646;
+  background: radial-gradient(ellipse at center, transparent 55%, rgba(0, 0, 0, 0.55) 100%);
+}

@@ -1,0 +1,368 @@
+/* Spook decorations. Every class is prefixed spook- to avoid clashing with pages. */
+
+#spook-layer {
+  position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
+  width: 0 !important;
+  height: 0 !important;
+  overflow: visible !important;
+  pointer-events: none !important;
+  z-index: 2147483000 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+}
+
+.spookify-off #spook-layer,
+.spookify-off .spook-root {
+  display: none !important;
+}
+
+.spook-root,
+.spook-root * {
+  box-sizing: border-box !important;
+  pointer-events: none !important;
+  line-height: 1.2 !important;
+  letter-spacing: normal !important;
+  text-transform: none !important;
+  text-decoration: none !important;
+  float: none !important;
+}
+
+.spook-root {
+  animation: spook-materialise 0.6s ease-out both;
+}
+
+/* Overlay box: sized and placed over the anchor by content.js. */
+.spook-root.spook-box {
+  position: absolute !important;
+  display: block !important;
+  overflow: visible !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+.spook-root.spook-inline {
+  display: inline-block !important;
+  position: relative !important;
+  vertical-align: middle !important;
+  margin: 0 0.3em !important;
+}
+
+.spook-root.spook-block {
+  display: block !important;
+  position: relative !important;
+  margin: 0.5em 0 !important;
+}
+
+.spook-paused,
+.spook-paused * {
+  animation-play-state: paused !important;
+}
+
+@keyframes spook-materialise {
+  from { opacity: 0; filter: blur(4px); }
+  to { opacity: 1; filter: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spook-root,
+  .spook-root * {
+    animation-duration: 0.01s !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+
+.spook-sprite {
+  display: inline-block;
+  font-size: 32px;
+  font-style: normal;
+}
+
+/* ---------- ghost ---------- */
+.spook-box .spook-ghost {
+  position: absolute;
+  inset: 0;
+}
+
+.spook-box .spook-ghost .spook-sprite {
+  position: absolute;
+  top: 10%;
+  left: 0;
+  font-size: 40px;
+  opacity: 0.8;
+  filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.6));
+  animation: spook-ghost-drift 10s ease-in-out infinite;
+}
+
+@keyframes spook-ghost-drift {
+  0% { left: -10px; transform: translateY(0) scaleX(1); }
+  25% { transform: translateY(-14px) scaleX(1); }
+  49% { left: calc(100% - 40px); transform: translateY(0) scaleX(1); }
+  51% { left: calc(100% - 40px); transform: translateY(0) scaleX(-1); }
+  75% { transform: translateY(-14px) scaleX(-1); }
+  100% { left: -10px; transform: translateY(0) scaleX(-1); }
+}
+
+/* ---------- bats ---------- */
+.spook-bats {
+  position: absolute;
+  left: 50%;
+  top: 30%;
+}
+
+.spook-inline .spook-bats {
+  position: relative;
+  left: 0;
+  top: 0;
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+}
+
+.spook-bat {
+  position: absolute;
+  left: 0;
+  top: 0;
+  font-size: 24px;
+  opacity: 0;
+  animation: spook-bat-fly 6s ease-out infinite;
+}
+
+.spook-bat-wings {
+  display: inline-block;
+  animation: spook-bat-flap 0.18s ease-in-out infinite alternate;
+}
+
+@keyframes spook-bat-fly {
+  0% { transform: translate(0, 0) scale(0.3); opacity: 0; }
+  8% { opacity: 1; }
+  55% { transform: translate(var(--dx), var(--dy)) scale(1); opacity: 0; }
+  100% { transform: translate(var(--dx), var(--dy)) scale(1); opacity: 0; }
+}
+
+@keyframes spook-bat-flap {
+  from { transform: scaleY(1); }
+  to { transform: scaleY(0.45); }
+}
+
+/* ---------- spider ---------- */
+.spook-spider {
+  position: absolute;
+  top: -24px;
+  left: 78%;
+}
+
+.spook-thread {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 0;
+  background: rgba(230, 225, 215, 0.7);
+  animation: spook-spider-drop 8s ease-in-out infinite;
+}
+
+.spook-spider-body {
+  position: absolute;
+  bottom: -18px;
+  left: -11px;
+  font-size: 22px;
+  filter: drop-shadow(0 0 4px rgba(0, 0, 0, 0.9));
+}
+
+@keyframes spook-spider-drop {
+  0%, 10% { height: 0; }
+  35% { height: 90px; }
+  45% { height: 78px; }
+  55% { height: 86px; }
+  80%, 100% { height: 0; }
+}
+
+/* ---------- cobweb ---------- */
+.spook-cobweb {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  /* Scales with the anchor so small buttons get small webs. */
+  width: clamp(28px, 35%, 80px);
+  aspect-ratio: 1;
+}
+
+.spook-web-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.8));
+}
+
+/* ---------- pumpkin ---------- */
+.spook-box .spook-pumpkin {
+  position: absolute;
+  top: -20px;
+  right: 6px;
+}
+
+.spook-pumpkin .spook-sprite {
+  font-size: 28px;
+  animation: spook-flicker 2.4s infinite;
+}
+
+.spook-inline .spook-pumpkin .spook-sprite {
+  font-size: 1.1em;
+}
+
+@keyframes spook-flicker {
+  0%, 100% { filter: drop-shadow(0 0 8px #ff7518); }
+  40% { filter: drop-shadow(0 0 3px #ff7518); }
+  45% { filter: drop-shadow(0 0 12px #ffa040); }
+  70% { filter: drop-shadow(0 0 6px #ff7518); }
+}
+
+/* ---------- glowing eyes ---------- */
+.spook-box .spook-eyes {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+}
+
+/* Centered only on images; on text, peek out from just above the element. */
+.spook-box:not(.spook-on-img) .spook-eyes {
+  left: auto;
+  right: 12%;
+  top: auto;
+  bottom: 100%;
+  transform: none;
+}
+
+.spook-eyes-svg {
+  display: block;
+  width: 60px;
+  height: 24px;
+  filter: drop-shadow(0 0 6px #ff7518) drop-shadow(0 0 14px #ff4500);
+  animation: spook-blink 5s infinite;
+  transform-origin: center;
+}
+
+.spook-inline .spook-eyes-svg {
+  width: 2.4em;
+  height: 1em;
+}
+
+@keyframes spook-blink {
+  0%, 90%, 100% { transform: scaleY(1); }
+  93% { transform: scaleY(0.08); }
+  96% { transform: scaleY(1); }
+}
+
+/* ---------- tombstone ---------- */
+.spook-tomb {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  width: 130px;
+  min-height: 120px;
+  padding: 22px 10px 12px;
+  background: linear-gradient(#4a443e, #2b2723);
+  border: 2px solid #615a52;
+  border-radius: 60px 60px 6px 6px;
+  box-shadow: inset 0 0 14px rgba(0, 0, 0, 0.7), 0 6px 0 #1b3a12;
+  color: #d8d2c8;
+  font-family: Georgia, "Times New Roman", serif;
+  text-align: center;
+  animation: spook-rise 1.4s ease-out both;
+}
+
+.spook-box .spook-tomb {
+  position: absolute;
+  right: 10px;
+  bottom: -30px;
+}
+
+.spook-block .spook-tomb {
+  margin: 0 auto;
+}
+
+.spook-tomb-rip {
+  font-size: 18px;
+  font-weight: bold;
+  letter-spacing: 2px !important;
+  color: #e8e2d8;
+  margin-bottom: 6px;
+}
+
+.spook-tomb-text {
+  font-size: 12px;
+  font-style: italic;
+  color: #c8c0b4;
+}
+
+@keyframes spook-rise {
+  from { transform: translateY(24px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+/* ---------- creepy caption ---------- */
+.spook-caption {
+  display: inline-block;
+  font-family: Georgia, "Times New Roman", serif;
+  font-style: italic;
+  font-size: 15px;
+  color: #ff9a4a;
+  text-shadow: 0 0 6px #ff4500, 0 0 1px #000;
+  background: rgba(0, 0, 0, 0.75);
+  padding: 3px 8px;
+  border-left: 2px solid #ff7518;
+  animation: spook-whisper 4s ease-in-out infinite;
+}
+
+.spook-box .spook-caption {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 4px;
+  max-width: max(220px, 100%);
+}
+
+@keyframes spook-whisper {
+  0%, 100% { opacity: 1; transform: translateX(0); }
+  50% { opacity: 0.65; transform: translateX(2px); }
+}
+
+/* ---------- blood drip ---------- */
+.spook-blood {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 100%;
+  height: 0;
+}
+
+.spook-drip {
+  position: absolute;
+  top: -3px;
+  width: 6px;
+  height: 0;
+  background: linear-gradient(#5c0000, #a00000);
+  border-radius: 0 0 50% 50%;
+  animation: spook-drip 4s ease-in forwards;
+}
+
+.spook-drip::after {
+  content: "";
+  position: absolute;
+  bottom: -5px;
+  left: -1px;
+  width: 8px;
+  height: 8px;
+  background: #a00000;
+  border-radius: 50%;
+}
+
+@keyframes spook-drip {
+  from { height: 0; }
+  to { height: var(--len); }
+}

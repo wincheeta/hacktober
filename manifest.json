@@ -1,18 +1,35 @@
 {
   "manifest_version": 3,
-  "name": "Page HTML Logger",
-  "version": "0.1.0",
-  "description": "Logs the HTML of each page to the console after it finishes loading.",
+  "name": "Spookify",
+  "version": "0.2.0",
+  "description": "Makes every web page spooky: a dark orange/black theme plus decorations placed by a local Ollama model.",
+  "permissions": ["storage", "declarativeNetRequestWithHostAccess"],
+  "host_permissions": ["http://localhost:11434/*", "http://127.0.0.1:11434/*"],
+  "background": {
+    "service_worker": "background.js",
+    "scripts": ["spooks.js", "background.js"]
+  },
+  "action": {
+    "default_title": "Spookify",
+    "default_popup": "popup.html"
+  },
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["content.js"],
+      "css": ["theme.css", "spooks.css"],
+      "js": ["boot.js"],
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["<all_urls>"],
+      "js": ["spooks.js", "content.js"],
       "run_at": "document_idle"
     }
   ],
   "browser_specific_settings": {
     "gecko": {
-      "id": "page-html-logger@example.com"
+      "id": "spookify@hacktober.example",
+      "strict_min_version": "121.0"
     }
   }
 }
