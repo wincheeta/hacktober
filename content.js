@@ -57,7 +57,8 @@
   let originals = new Map(); // text node -> { text: before we touched it, ours: what we set }
   let rewritten = []; // { el, title } headings we rewrote, to restore their title
   let swapRegex = null;
-  let swapMap = null; // lowercase word -> replacement
+  let swapMap = null; // lowercase word -> replacement, as chosen (shown in the popup)
+  let swapFormMap = null; // every form matched, including simple plurals/singulars
   let metaOf = new WeakMap(); // wrapper -> { sig, spook, text, tag, kind }
   let pinned = new Map(); // wrapper -> meta, for spooks the user has dragged
   let pinnedSigs = new Set(); // anchor signatures whose spook was dragged away
@@ -454,7 +455,11 @@
       reply && reply.status === "ok" ? S.validateSwaps({ swaps: reply.swaps }, words, count) : S.localSwaps(words, count);
     if (!swaps.length) return;
     swapMap = new Map(swaps.map((s) => [s.from, s.to]));
-    const escaped = swaps.map((s) => s.from.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+    swapFormMap = S.swapForms(swaps);
+    // Longest first so "stories" is tried before "story".
+    const escaped = [...swapFormMap.keys()]
+      .sort((a, b) => b.length - a.length)
+      .map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
     swapRegex = new RegExp(`(?<![\\p{L}])(${escaped.join("|")})(?![\\p{L}])`, "giu");
     applySwaps(document.body, myGen);
   }
@@ -472,7 +477,7 @@
       swapRegex.lastIndex = 0;
       if (!swapRegex.test(before)) return;
       swapRegex.lastIndex = 0;
-      node.nodeValue = before.replace(swapRegex, (m) => matchCase(m, swapMap.get(m.toLowerCase())));
+      node.nodeValue = before.replace(swapRegex, (m) => matchCase(m, swapFormMap.get(m.toLowerCase())));
       originals.set(node, { text: before, ours: node.nodeValue });
     });
   }
@@ -507,7 +512,7 @@
     }
     originals = new Map();
     rewritten = [];
-    swapRegex = swapMap = null;
+    swapRegex = swapMap = swapFormMap = null;
   }
 
   // ---------- components (spooky-components/components.js) ----------
