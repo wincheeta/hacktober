@@ -580,7 +580,8 @@
     "if a sheep is not sheared, it will be weighed down and eventually fall over, and ends up starving to death",
     "Many people go through the last years of their life sad and chronically lonely",
     "Every 60 seconds, a minute passes - Ali",
-    "If a panda has more than one cub, she often cannot care for both of the babies, and must choose one to survive."
+    "If a panda has more than one cub, she often cannot care for both of the babies, and must choose one to survive.",
+    "If you die alone at home, your pet cat will likely start to devour your body to survive"
   ];
 
   function showSkeletor(myGen) {
