@@ -24,6 +24,18 @@ const SPOOKY_GIFS = [
   { id: "dancer", path: "Pictures/dancing-skeleton.gif", use: "overlay", placement: "bottom-right", size: 0.45, weight: 2 },
   { id: "spider", path: "Pictures/skeletonSpider.gif", use: "overlay", placement: "hang-top", size: 0.3, weight: 1 },
   { id: "skull", path: "Pictures/skull.gif", use: "overlay", placement: "peek-corner", size: 0.3, weight: 1 },
+  { id: "dancer1", path: "Pictures/dancing-skeleton1.gif", use: "overlay", placement: "bottom-right", size: 0.4, weight: 1 },
+  { id: "dancer2", path: "Pictures/dancing-skeleton2.gif", use: "overlay", placement: "bottom-left", size: 0.4, weight: 1 },
+  { id: "dancer3", path: "Pictures/dancing-skeleton3.gif", use: "overlay", placement: "bottom-right", size: 0.4, weight: 1 },
+  { id: "dancer4", path: "Pictures/dancing-skeleton4.gif", use: "overlay", placement: "bottom-left", size: 0.35, weight: 1 },
+  { id: "pumpkin1", path: "Pictures/pumpkin1.gif", use: "overlay", placement: "bottom-left", size: 0.25, weight: 1 },
+  { id: "pumpkin2", path: "Pictures/pumpkin2.gif", use: "overlay", placement: "bottom-right", size: 0.3, weight: 1 },
+  { id: "pumpkin3", path: "Pictures/pumpkin3.gif", use: "overlay", placement: "bottom-left", size: 0.3, weight: 1 },
+  { id: "pumpkin4", path: "Pictures/pumpkin4.gif", use: "overlay", placement: "bottom-right", size: 0.3, weight: 1 },
+  { id: "bat-hang", path: "Pictures/bat1.gif", use: "overlay", placement: "hang-top", size: 0.2, weight: 1 },
+  { id: "bat-fly", path: "Pictures/bat2.gif", use: "overlay", placement: "peek-corner", size: 0.35, weight: 1 },
+  { id: "bat-swarm", path: "Pictures/batgroup.gif", use: "overlay", placement: "center", size: 0.6, weight: 1 },
+  { id: "witch", path: "Pictures/witch1.gif", use: "overlay", placement: "bottom-left", size: 0.4, minSize: 200, weight: 1 },
 ];
 
 const SPOOKY_DECOR = {

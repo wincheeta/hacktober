@@ -28,7 +28,7 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["Pictures/*.gif"],
+      "resources": ["Pictures/*.gif", "spooky-components/*.svg"],
       "matches": ["<all_urls>"]
     }
   ],

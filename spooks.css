@@ -91,6 +91,10 @@
   top: 10%;
   left: 0;
   font-size: 40px;
+  /* Matches the 40px the drift keyframes assume; max-width beats page img rules. */
+  width: 40px;
+  height: auto;
+  max-width: none;
   opacity: 0.8;
   filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.6));
   animation: spook-ghost-drift 10s ease-in-out infinite;
@@ -181,12 +185,19 @@
 }
 
 /* ---------- cobweb ---------- */
-.spook-cobweb {
+/* The overlay box is sized to the anchor; clip so the web never spills out. */
+.spook-root.spook-box.spook-cobweb {
+  overflow: hidden !important;
+  container-type: size;
+}
+
+.spook-box > .spook-cobweb {
   position: absolute;
-  top: -4px;
-  right: -4px;
-  /* Scales with the anchor so small buttons get small webs. */
-  width: clamp(28px, 35%, 80px);
+  top: 0;
+  right: 0;
+  /* Scales with the anchor so small buttons get small webs, but never
+     exceeds the anchor's width or height (short nav bars, thin headers). */
+  width: min(max(28px, 35cqw), 80px, 100cqw, 100cqh);
   aspect-ratio: 1;
 }
 
