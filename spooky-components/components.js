@@ -23,6 +23,9 @@ const SPOOKY_GIFS = [
   { id: "taco", path: "Pictures/skeletonchompontaco.gif", use: "overlay", placement: "bottom-left", size: 0.45, minSize: 200, weight: 2 },
   { id: "dancer", path: "Pictures/dancing-skeleton.gif", use: "overlay", placement: "bottom-right", size: 0.45, weight: 2 },
   { id: "spider", path: "Pictures/skeletonSpider.gif", use: "overlay", placement: "hang-top", size: 0.3, weight: 1 },
+  { id: "spider2", path: "Pictures/spider2.gif", use: "overlay", placement: "bottom-right", size: 0.3, weight: 1 },
+  // Only 40px, so kept small to stay sharp.
+  { id: "spider3", path: "Pictures/spider3.gif", use: "overlay", placement: "peek-corner", size: 0.12, weight: 1 },
   { id: "skull", path: "Pictures/skull.gif", use: "overlay", placement: "peek-corner", size: 0.3, weight: 1 },
   { id: "dancer1", path: "Pictures/dancing-skeleton1.gif", use: "overlay", placement: "bottom-right", size: 0.4, weight: 1 },
   { id: "dancer2", path: "Pictures/dancing-skeleton2.gif", use: "overlay", placement: "bottom-left", size: 0.4, weight: 1 },
