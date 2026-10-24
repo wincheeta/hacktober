@@ -1,4 +1,4 @@
-const DEFAULTS = { enabled: true, model: "", intensity: 5, dragMode: false }; // model "" = auto-detect
+const DEFAULTS = { enabled: true, model: "", intensity: 5, dragMode: false, blockMoodle: true }; // model "" = auto-detect
 const OLLAMA_ORIGINS = ["http://localhost:11434/*"];
 
 const $ = (id) => document.getElementById(id);
@@ -6,6 +6,7 @@ const enabledEl = $("enabled");
 const modelEl = $("model");
 const intensityEl = $("intensity");
 const dragModeEl = $("drag-mode");
+const blockMoodleEl = $("block-moodle");
 
 let tabId = null;
 
@@ -68,6 +69,7 @@ async function init() {
   buildTuning(s.tuning);
   enabledEl.checked = s.enabled !== false;
   dragModeEl.checked = s.dragMode === true;
+  blockMoodleEl.checked = s.blockMoodle !== false;
   modelEl.value = s.model;
   intensityEl.value = s.intensity;
   $("intensity-value").textContent = s.intensity;
@@ -143,6 +145,7 @@ async function refreshSwaps() {
 
 enabledEl.addEventListener("change", () => chrome.storage.sync.set({ enabled: enabledEl.checked }));
 dragModeEl.addEventListener("change", () => chrome.storage.sync.set({ dragMode: dragModeEl.checked }));
+blockMoodleEl.addEventListener("change", () => chrome.storage.sync.set({ blockMoodle: blockMoodleEl.checked }));
 
 modelEl.addEventListener("change", () => {
   // Leaving the field empty switches back to auto-detect.

@@ -17,8 +17,9 @@
   const LOOKAHEAD = "0px 0px 150% 0px";
   const MAX_CANDIDATES = 1500;
   const REPLY_TIMEOUT_MS = 65000; // > background stale window + request timeout
-  // Text we never rewrite: code, form fields, editors and our own spooks.
-  const NO_SWAP = "script, style, noscript, code, pre, kbd, samp, textarea, input, select, option, svg, [contenteditable=''], [contenteditable='true'], .spook-root, .spook-letters, #spook-layer";
+  // Text we never rewrite: code, forms and controls (a swapped "delete" or
+  // "password" could mislead), editors and our own spooks.
+  const NO_SWAP = "script, style, noscript, code, pre, kbd, samp, textarea, input, select, option, svg, form, button, label, legend, [role='button'], [contenteditable=''], [contenteditable='true'], .spook-root, .spook-letters, #spook-layer";
   const MAX_TEXT_NODES = 3000;
   const STOPWORDS = new Set(
     ("that this with from have your will more about what when which their there them they been were would " +
@@ -30,7 +31,7 @@
     ? (fn) => window.requestIdleCallback(fn, { timeout: 2000 })
     : (fn) => setTimeout(() => fn({ timeRemaining: () => 8, didTimeout: true }), 50);
 
-  const settings = { enabled: true, intensity: 5, dragMode: false };
+  const settings = { enabled: true, intensity: 5, dragMode: false, blockMoodle: true };
   let running = false;
   let gen = 0; // bumped on every reset; replies from an older generation are ignored
   let anchorCounter = 0;
@@ -348,9 +349,14 @@
     idle(step);
   }
 
+  // Login and payment pages keep their words as written.
+  function sensitivePage() {
+    return !!document.querySelector("input[type='password'], input[autocomplete^='cc-']");
+  }
+
   function collectWords(myGen) {
     const count = Math.min(S.MAX_SWAPS, Math.round(level("wordSwaps") * 1.6));
-    if (count <= 0 || !document.body) return;
+    if (count <= 0 || !document.body || sensitivePage()) return;
     const freq = new Map();
     walkText(
       document.body,
@@ -418,7 +424,7 @@
   function rewriteHeading(r, myGen) {
     if (myGen !== gen || !running) return;
     const heading = anchors.get(r.anchor);
-    if (!heading || !heading.isConnected || heading.classList.contains("spook-rewritten")) return;
+    if (!heading || !heading.isConnected || heading.classList.contains("spook-rewritten") || sensitivePage()) return;
     const texts = [];
     const walker = document.createTreeWalker(heading, NodeFilter.SHOW_TEXT);
     for (let n; (n = walker.nextNode());) if (n.nodeValue.trim()) texts.push(n);
@@ -932,7 +938,7 @@
         const roots = addedRoots;
         addedRoots = [];
         roots.forEach((root) => {
-          SpookyMoodle.grepAndRemove(root);
+          if (settings.blockMoodle) SpookyMoodle.grepAndRemove(root);
           scanRoot(root);
           applySwaps(root, gen);
         });
@@ -1006,7 +1012,7 @@
   // Restore moved spooks first, so their anchors aren't decorated twice.
   function rescan() {
     const myGen = gen;
-    SpookyMoodle.grepAndRemove(document.body);
+    if (settings.blockMoodle) SpookyMoodle.grepAndRemove(document.body);
     restorePins(myGen).finally(() => {
       if (myGen !== gen) return;
       {
@@ -1101,6 +1107,11 @@
       settings.dragMode = changes.dragMode.newValue === true;
       applyDragMode();
     }
+    // Removed content can't be put back, so turning it off only stops further removal.
+    if (changes.blockMoodle) {
+      settings.blockMoodle = changes.blockMoodle.newValue !== false;
+      if (settings.blockMoodle && running && document.body) SpookyMoodle.grepAndRemove(document.body);
+    }
     if (changes.enabled) {
       settings.enabled = changes.enabled.newValue !== false;
       applyEnabled();
@@ -1114,7 +1125,7 @@
     if (msg && msg.type === "get-swaps") sendResponse({ swaps: swapMap ? [...swapMap].map(([from, to]) => ({ from, to })) : [] });
   });
 
-  const STORED = { enabled: true, intensity: 5, dragMode: false, tuning: null };
+  const STORED = { enabled: true, intensity: 5, dragMode: false, blockMoodle: true, tuning: null };
   chrome.storage.sync
     .get(STORED)
     .catch(() => STORED)
@@ -1122,6 +1133,7 @@
       settings.enabled = s.enabled !== false;
       settings.intensity = Number(s.intensity) || 5;
       settings.dragMode = s.dragMode === true;
+      settings.blockMoodle = s.blockMoodle !== false;
       applyTuning(s.tuning);
       applyEnabled();
     });
