@@ -629,6 +629,7 @@
     const scares = assetsFor(SPOOKY_GIFS, "jumpscare");
     const chance = Math.min(1, level("jumpscare") / 10) ** 2;
     if (!scares.length || Math.random() >= chance) return;
+    if (typeof JUMPSCARE_NEVER_MS !== "undefined" && JUMPSCARE.cooldownMs >= JUMPSCARE_NEVER_MS) return;
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     const depth = 0.2 + Math.random() * 0.6;
     jumpTimer = setTimeout(() => {
