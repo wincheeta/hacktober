@@ -10,7 +10,7 @@ const OLLAMA = "http://localhost:11434";
 // What to put in OLLAMA_ORIGINS so Ollama allows this extension and no other.
 const SELF_ORIGIN = new URL(chrome.runtime.getURL("")).origin;
 const DEFAULTS = { enabled: true, model: "", intensity: 5 }; // model "" = auto-detect
-const PREFERRED_MODEL = "llama3.2:3b";
+const PREFERRED_MODEL = "gemma4:e2b";
 const AUTO_MODEL_TTL_MS = 60000;
 const REQUEST_TIMEOUT_MS = 40000; // a cold model load plus an uncached prompt takes ~25s on CPU
 const STALE_MS = 20000; // > one CPU batch (~5-8s) plus the words job ahead of it
@@ -98,7 +98,7 @@ async function ollamaFetch(path, body, signal) {
 
 // ---------- model choice ----------
 // With no model set, use what's installed: the preferred model if present,
-// else the smallest llama, else the smallest chat model (small = fast on CPU).
+// else the smallest gemma4, else the smallest chat model (small = fast on CPU).
 
 let autoModel = "";
 let autoCheckedAt = 0;
@@ -110,8 +110,8 @@ function pickModel(models) {
   });
   if (chat.some((m) => m.name === PREFERRED_MODEL)) return PREFERRED_MODEL;
   const bySize = (a, b) => (a.size || 0) - (b.size || 0);
-  const llamas = chat.filter((m) => /llama/i.test(m.name)).sort(bySize);
-  if (llamas.length) return llamas[0].name;
+  const gemmas = chat.filter((m) => /gemma/i.test(m.name)).sort(bySize);
+  if (gemmas.length) return gemmas[0].name;
   return chat.sort(bySize).map((m) => m.name)[0] || "";
 }
 

@@ -566,7 +566,7 @@
     "One day, your parents put you down as a child and never picked you up again.",
     "Somewhere on the calendar is the anniversary of your death, and you pass it every year without knowing.",
     "In about 4.5 billion years, Andromeda will collide with the Milky Way, dismantling the solar system.",
-    "Elephants will mourn other elephants in their group dying and will hold funerals for them and will even recognize the bones of said elephant and cry out in sadness",
+    "Elephants will mourn other elephants in their group and will hold funerals for them and will even recognize the bones of said elephant and cry out in sadness",
     "Your dog will mourn you when you die, but your cats will be indifferent",
     "You share 50% of your DNA with a banana",
     "Your body contains more bacterial cells than human cells",
