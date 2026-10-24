@@ -56,6 +56,36 @@
   margin: 0.5em 0 !important;
 }
 
+/* Dragged off its anchor: placed in the layer by content.js. */
+.spook-root.spook-free {
+  position: absolute !important;
+  margin: 0 !important;
+  animation: none;
+}
+
+/* Drag mode: the visible parts of a spook take the mouse; the wrapper (which
+   can be as big as the anchor) and the ghost's full-size track stay click-through. */
+.spookify-drag .spook-root * {
+  pointer-events: auto !important;
+  cursor: grab !important;
+  touch-action: none !important;
+}
+
+.spookify-drag .spook-root .spook-ghost {
+  pointer-events: none !important;
+}
+
+.spookify-drag .spook-root:hover {
+  outline: 2px dashed rgba(255, 117, 24, 0.8) !important;
+  outline-offset: 2px !important;
+}
+
+.spookify-dragging,
+.spookify-dragging * {
+  cursor: grabbing !important;
+  user-select: none !important;
+}
+
 .spook-paused,
 .spook-paused * {
   animation-play-state: paused !important;

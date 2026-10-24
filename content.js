@@ -22,7 +22,7 @@
     ? (fn) => window.requestIdleCallback(fn, { timeout: 2000 })
     : (fn) => setTimeout(() => fn({ timeRemaining: () => 8, didTimeout: true }), 50);
 
-  const settings = { enabled: true, intensity: 5 };
+  const settings = { enabled: true, intensity: 5, dragMode: false };
   let running = false;
   let gen = 0; // bumped on every reset; replies from an older generation are ignored
   let anchorCounter = 0;
@@ -46,6 +46,10 @@
   let addedRoots = [];
   let mutationTimer = null;
   let repositionQueued = false;
+  let metaOf = new WeakMap(); // wrapper -> { sig, spook, text, tag, kind }
+  let pinned = new Map(); // wrapper -> meta, for spooks the user has dragged
+  let pinnedSigs = new Set(); // anchor signatures whose spook was dragged away
+  let drag = null;
 
   // ---------- discovery ----------
 
@@ -201,6 +205,13 @@
     if (!anchor || !anchor.isConnected || !spook || anchor.dataset.spookDone) return;
 
     const tag = anchor.tagName.toLowerCase();
+    const desc = describe(anchor, p.anchor);
+    const sig = `${desc.tag}|${desc.text}`;
+    // The user already moved this anchor's spook somewhere; it was restored there.
+    if (pinnedSigs.has(sig)) {
+      anchor.dataset.spookDone = "pinned";
+      return;
+    }
     const rect = anchor.getBoundingClientRect();
     let position = p.position;
 
@@ -222,7 +233,9 @@
     }
 
     const node = spook.render(p.text);
+    const shownText = spook.needsText ? (node.querySelector(".spook-tomb-text") || node).textContent : "";
     let wrapper;
+    let kind = "box";
     if (position === "overlay") {
       wrapper = document.createElement("div");
       wrapper.className = `spook-root spook-box spook-${spook.id} spook-on-${tag}`;
@@ -233,13 +246,15 @@
       overlays.push({ box: wrapper, anchor });
     } else {
       const block = spook.id === "tombstone" || (spook.id === "creepy_caption" && (position === "before" || position === "after"));
+      kind = block ? "block" : "inline";
       wrapper = document.createElement(block ? "div" : "span");
-      wrapper.className = `spook-root ${block ? "spook-block" : "spook-inline"} spook-${spook.id}`;
+      wrapper.className = `spook-root spook-${kind} spook-${spook.id}`;
       wrapper.setAttribute("aria-hidden", "true");
       wrapper.appendChild(node);
       anchor[position](wrapper);
     }
 
+    metaOf.set(wrapper, { sig, spook: spook.id, text: shownText, tag, kind });
     anchor.dataset.spookDone = spook.id;
     placed++;
     animIo.observe(wrapper);
@@ -474,6 +489,154 @@
     if (e.target !== document && overlays.length) queueReposition();
   }
 
+  // ---------- dragging ----------
+  // In drag mode spooks take the mouse (see spooks.css). A dragged spook is
+  // detached from its anchor into the layer, so it stays where it was dropped
+  // and scrolls with the page. Positions are saved per URL and restored on load.
+
+  function pinKey() {
+    return `pins:${location.href.split("#")[0]}`;
+  }
+
+  // Detach a spook from its anchor so it can be moved freely.
+  function unanchor(wrapper) {
+    if (pinned.has(wrapper)) return;
+    const l = ensureLayer();
+    if (wrapper.classList.contains("spook-box")) {
+      overlays = overlays.filter((o) => o.box !== wrapper);
+    } else {
+      const rect = wrapper.getBoundingClientRect();
+      // Keep em-sized sprites the size they were next to the anchor.
+      wrapper.style.fontSize = getComputedStyle(wrapper).fontSize;
+      l.appendChild(wrapper);
+      placeBox(wrapper, rect, l.getBoundingClientRect());
+    }
+    wrapper.classList.add("spook-free");
+    pinned.set(wrapper, metaOf.get(wrapper));
+  }
+
+  function onPointerDown(e) {
+    if (e.button !== 0 || !running) return;
+    const wrapper = e.target.closest && e.target.closest(".spook-root");
+    if (!wrapper || !metaOf.has(wrapper)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    unanchor(wrapper);
+    drag = {
+      wrapper,
+      pointerId: e.pointerId,
+      startX: e.pageX,
+      startY: e.pageY,
+      left: parseFloat(wrapper.style.left) || 0,
+      top: parseFloat(wrapper.style.top) || 0,
+    };
+    document.documentElement.classList.add("spookify-dragging");
+    window.addEventListener("pointermove", onPointerMove, true);
+    window.addEventListener("pointerup", onPointerUp, true);
+    window.addEventListener("pointercancel", onPointerUp, true);
+  }
+
+  function onPointerMove(e) {
+    if (!drag || e.pointerId !== drag.pointerId) return;
+    e.preventDefault();
+    drag.wrapper.style.left = `${drag.left + e.pageX - drag.startX}px`;
+    drag.wrapper.style.top = `${drag.top + e.pageY - drag.startY}px`;
+  }
+
+  function endDrag() {
+    window.removeEventListener("pointermove", onPointerMove, true);
+    window.removeEventListener("pointerup", onPointerUp, true);
+    window.removeEventListener("pointercancel", onPointerUp, true);
+    document.documentElement.classList.remove("spookify-dragging");
+    drag = null;
+  }
+
+  function onPointerUp(e) {
+    if (!drag || e.pointerId !== drag.pointerId) return;
+    endDrag();
+    savePins();
+  }
+
+  // Spooks can sit inside links and buttons; don't let a drag click them.
+  function onClick(e) {
+    if (e.target.closest && e.target.closest(".spook-root")) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  }
+
+  function applyDragMode() {
+    const on = settings.enabled && settings.dragMode;
+    document.documentElement.classList.toggle("spookify-drag", on);
+    const method = on ? "addEventListener" : "removeEventListener";
+    window[method]("pointerdown", onPointerDown, true);
+    window[method]("click", onClick, true);
+    if (!on && drag) endDrag();
+  }
+
+  function savePins() {
+    const list = [...pinned]
+      .filter(([w, meta]) => w.isConnected && meta)
+      .map(([w, meta]) => ({
+        ...meta,
+        x: parseFloat(w.style.left) || 0,
+        y: parseFloat(w.style.top) || 0,
+        w: parseFloat(w.style.width) || 0,
+        h: parseFloat(w.style.height) || 0,
+        fontSize: w.style.fontSize || "",
+      }));
+    const key = pinKey();
+    try {
+      (list.length ? chrome.storage.local.set({ [key]: list }) : chrome.storage.local.remove(key)).catch(() => {});
+    } catch {
+      // extension reloaded: nowhere to save
+    }
+  }
+
+  // Recreate the spooks the user moved on this page, where they left them.
+  // Stored data is re-validated, since only catalog spooks may be rendered.
+  async function restorePins(myGen) {
+    const key = pinKey();
+    let list;
+    try {
+      list = (await chrome.storage.local.get(key))[key];
+    } catch {
+      return;
+    }
+    if (myGen !== gen || !running || !Array.isArray(list)) return;
+    const l = ensureLayer();
+    for (const p of list) {
+      const spook = p && S.byId[p.spook];
+      if (!spook || ![p.x, p.y, p.w, p.h].every(Number.isFinite)) continue;
+      const kind = ["box", "block", "inline"].includes(p.kind) ? p.kind : "box";
+      const tag = /^[a-z][a-z0-9]{0,9}$/.test(p.tag) ? p.tag : "div";
+      const text = S.cleanText(p.text);
+      const wrapper = document.createElement(kind === "inline" ? "span" : "div");
+      wrapper.className =
+        kind === "box" ? `spook-root spook-box spook-${spook.id} spook-on-${tag}` : `spook-root spook-${kind} spook-${spook.id}`;
+      wrapper.classList.add("spook-free");
+      wrapper.setAttribute("aria-hidden", "true");
+      wrapper.appendChild(spook.render(text));
+      placeBox(wrapper, { left: p.x, top: p.y, width: p.w, height: p.h }, { left: 0, top: 0 });
+      if (/^\d+(\.\d+)?px$/.test(p.fontSize)) wrapper.style.fontSize = p.fontSize;
+      l.appendChild(wrapper);
+      const meta = { sig: String(p.sig || ""), spook: spook.id, text, tag, kind };
+      metaOf.set(wrapper, meta);
+      pinned.set(wrapper, meta);
+      pinnedSigs.add(meta.sig);
+      animIo.observe(wrapper);
+    }
+  }
+
+  async function unpinAll() {
+    try {
+      await chrome.storage.local.remove(pinKey());
+    } catch {
+      // extension reloaded
+    }
+    reset();
+  }
+
   // ---------- dynamic pages ----------
 
   function onMutations(records) {
@@ -520,6 +683,14 @@
     rescan();
   }
 
+  // Restore moved spooks first, so their anchors aren't decorated twice.
+  function rescan() {
+    const myGen = gen;
+    restorePins(myGen).finally(() => {
+      if (myGen === gen) idle(() => scanRoot(document.body));
+    });
+  }
+
   function clearSpooks() {
     gen++;
     // Free the model for fresh batches instead of finishing ones we'll ignore.
@@ -537,10 +708,14 @@
     placed = reserved = maxBottom = observedCount = 0;
     possessions.forEach((undo) => undo());
     possessions = [];
+    if (drag) endDrag();
     document.querySelectorAll(".spook-root").forEach((n) => n.remove());
     if (layer) layer.remove();
     layer = null;
     overlays = [];
+    metaOf = new WeakMap();
+    pinned = new Map();
+    pinnedSigs = new Set();
     anchors.forEach((n) => {
       delete n.dataset.spookAnchor;
       delete n.dataset.spookDone;
@@ -583,6 +758,7 @@
     document.documentElement.classList.toggle("spookify-off", !settings.enabled);
     if (settings.enabled) idle(start);
     else stop();
+    applyDragMode();
   }
 
   chrome.storage.onChanged.addListener((changes, area) => {
@@ -591,6 +767,10 @@
     if (changes.tuning) applyTuning(changes.tuning.newValue);
     // Apply new levels now, not just to spooks placed later.
     if ((changes.intensity || changes.tuning) && !changes.enabled) reset();
+    if (changes.dragMode) {
+      settings.dragMode = changes.dragMode.newValue === true;
+      applyDragMode();
+    }
     if (changes.enabled) {
       settings.enabled = changes.enabled.newValue !== false;
       applyEnabled();
@@ -599,14 +779,17 @@
 
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg && msg.type === "respook") reset();
+    if (msg && msg.type === "unpin") unpinAll();
   });
 
+  const STORED = { enabled: true, intensity: 5, dragMode: false, tuning: null };
   chrome.storage.sync
-    .get({ enabled: true, intensity: 5, tuning: null })
-    .catch(() => ({ enabled: true, intensity: 5, tuning: null }))
+    .get(STORED)
+    .catch(() => STORED)
     .then((s) => {
       settings.enabled = s.enabled !== false;
       settings.intensity = Number(s.intensity) || 5;
+      settings.dragMode = s.dragMode === true;
       applyTuning(s.tuning);
       applyEnabled();
     });

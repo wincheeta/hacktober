@@ -1,10 +1,11 @@
-const DEFAULTS = { enabled: true, model: "llama3.2:3b", intensity: 5 };
+const DEFAULTS = { enabled: true, model: "", intensity: 5, dragMode: false }; // model "" = auto-detect
 const OLLAMA_ORIGINS = ["http://localhost:11434/*"];
 
 const $ = (id) => document.getElementById(id);
 const enabledEl = $("enabled");
 const modelEl = $("model");
 const intensityEl = $("intensity");
+const dragModeEl = $("drag-mode");
 
 let tabId = null;
 
@@ -61,6 +62,7 @@ async function init() {
   const s = await chrome.storage.sync.get({ ...DEFAULTS, tuning: null });
   buildTuning(s.tuning);
   enabledEl.checked = s.enabled !== false;
+  dragModeEl.checked = s.dragMode === true;
   modelEl.value = s.model;
   intensityEl.value = s.intensity;
   $("intensity-value").textContent = s.intensity;
@@ -88,8 +90,10 @@ async function refresh() {
 
   const dot = $("dot");
   dot.className = "dot " + (st.online ? "ok" : st.online === false ? "bad" : "");
+  modelEl.placeholder = st.auto && st.model ? `Auto: ${st.model}` : "Auto-detect";
   if (st.online) {
-    $("status-text").textContent = `Ollama online · ${st.loaded ? "model loaded" : "model not loaded yet"}`;
+    const which = st.model ? `${st.model}${st.auto ? " (auto)" : ""}` : "no model";
+    $("status-text").textContent = `Ollama online · ${which} · ${st.loaded ? "loaded" : "not loaded yet"}`;
   } else if (st.online === false) {
     $("status-text").textContent = "Offline mode: spooks are placed at random";
   } else {
@@ -110,9 +114,11 @@ async function refresh() {
 }
 
 enabledEl.addEventListener("change", () => chrome.storage.sync.set({ enabled: enabledEl.checked }));
+dragModeEl.addEventListener("change", () => chrome.storage.sync.set({ dragMode: dragModeEl.checked }));
 
 modelEl.addEventListener("change", () => {
-  const model = modelEl.value.trim() || DEFAULTS.model;
+  // Leaving the field empty switches back to auto-detect.
+  const model = modelEl.value.trim();
   modelEl.value = model;
   chrome.storage.sync.set({ model });
 });
@@ -124,6 +130,10 @@ intensityEl.addEventListener("change", () => chrome.storage.sync.set({ intensity
 
 $("respook").addEventListener("click", () => {
   if (tabId != null) chrome.tabs.sendMessage(tabId, { type: "respook" }).catch(() => {});
+});
+
+$("unpin").addEventListener("click", () => {
+  if (tabId != null) chrome.tabs.sendMessage(tabId, { type: "unpin" }).catch(() => {});
 });
 
 $("tuning-reset").addEventListener("click", () => {
