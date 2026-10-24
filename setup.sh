@@ -8,7 +8,9 @@
 #   ./setup.sh --model llama3.2:1b
 set -eu
 
-MODEL="llama3.2:3b"
+# Spookify prefers gemma4:e2b; llama3.2:3b is the fallback if it can't be pulled.
+MODEL=""
+DEFAULT_MODELS="gemma4:e2b llama3.2:3b"
 FIREFOX=""
 # Chrome needs no setting. Without --origin this allows every Firefox
 # extension; the popup's 403 error names Spookify's exact origin.
@@ -79,9 +81,22 @@ if ! api_up; then
 fi
 say "Ollama is running."
 
-# 3. Download the model.
-say "Downloading $MODEL (about 2 GB for llama3.2:3b, only the first time)..."
-ollama pull "$MODEL"
+# 3. Download the model: the one asked for, else the first default that pulls.
+if [ -n "$MODEL" ]; then
+  say "Downloading $MODEL (only the first time)..."
+  ollama pull "$MODEL"
+else
+  for candidate in $DEFAULT_MODELS; do
+    say "Downloading $candidate (only the first time)..."
+    if ollama pull "$candidate"; then
+      MODEL="$candidate"
+      break
+    fi
+    say "Couldn't download $candidate; trying the next model."
+  done
+  [ -n "$MODEL" ] || die "Couldn't download any of: $DEFAULT_MODELS. Update Ollama and try again."
+fi
+say "Spookify will use $MODEL (leave the popup's model field empty to auto-detect)."
 
 # 4. Firefox can't rewrite its request Origin, so Ollama has to allow it.
 if [ -z "$FIREFOX" ]; then

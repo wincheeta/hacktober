@@ -6,7 +6,8 @@
 #   .\setup.ps1 -Firefox -Origin moz-extension://<uuid>   # only Spookify
 #   .\setup.ps1 -Model llama3.2:1b
 param(
-  [string]$Model = "llama3.2:3b",
+  # Empty: gemma4:e2b, which Spookify prefers, else llama3.2:3b if it can't be pulled.
+  [string]$Model = "",
   [switch]$Firefox,
   [switch]$NoFirefox,
   # Chrome needs no setting. Without -Origin this allows every Firefox
@@ -58,10 +59,22 @@ if (-not (ApiUp)) {
 }
 Say "Ollama is running."
 
-# 3. Download the model.
-Say "Downloading $Model (about 2 GB for llama3.2:3b, only the first time)..."
-ollama pull $Model
-if ($LASTEXITCODE -ne 0) { Die "Couldn't download $Model." }
+# 3. Download the model: the one asked for, else the first default that pulls.
+$DefaultModels = @("gemma4:e2b", "llama3.2:3b")
+if ($Model) {
+  Say "Downloading $Model (only the first time)..."
+  ollama pull $Model
+  if ($LASTEXITCODE -ne 0) { Die "Couldn't download $Model." }
+} else {
+  foreach ($candidate in $DefaultModels) {
+    Say "Downloading $candidate (only the first time)..."
+    ollama pull $candidate
+    if ($LASTEXITCODE -eq 0) { $Model = $candidate; break }
+    Say "Couldn't download $candidate; trying the next model."
+  }
+  if (-not $Model) { Die "Couldn't download any of: $($DefaultModels -join ', '). Update Ollama and try again." }
+}
+Say "Spookify will use $Model (leave the popup's model field empty to auto-detect)."
 
 # 4. Firefox can't rewrite its request Origin, so Ollama has to allow it.
 if (-not $Firefox -and -not $NoFirefox) {

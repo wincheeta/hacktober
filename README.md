@@ -15,7 +15,7 @@ The model only picks element ids, spook ids and positions, plus a short line of 
 
 ### 1. Run Ollama
 
-The setup script installs Ollama if it's missing, starts it, downloads `llama3.2:3b`, and asks whether you'll use Firefox (see below):
+The setup script installs Ollama if it's missing, starts it, downloads `gemma4:e2b` (or `llama3.2:3b` if that download fails, for example on an older Ollama), and asks whether you'll use Firefox (see below):
 
 - **macOS / Linux:** `./setup.sh` (options: `--model <name>`, `--firefox`, `--origin <origin>`). On macOS without Homebrew, install the [Ollama app](https://ollama.com/download/mac) first.
 - **Windows:** double-click `setup.bat`, or run `.\setup.ps1` (options: `-Model <name>`, `-Firefox`, `-Origin <origin>`). Installs Ollama with winget.
@@ -23,11 +23,11 @@ The setup script installs Ollama if it's missing, starts it, downloads `llama3.2
 Or do it by hand:
 
 ```
-ollama pull llama3.2:3b
+ollama pull gemma4:e2b     # or: ollama pull llama3.2:3b
 ollama serve
 ```
 
-Smaller models such as `llama3.2:1b` or `qwen2.5:1.5b` reply faster. You can switch models in the popup. Leave the field empty to auto-detect: Spookify uses `llama3.2:3b` if it's installed, else the smallest installed llama model, else the smallest installed chat model.
+Smaller models such as `llama3.2:1b` or `qwen2.5:1.5b` reply faster. You can switch models in the popup. Leave the field empty to auto-detect: Spookify uses `gemma4:e2b` if it's installed, else the smallest installed Gemma model, else the smallest installed chat model.
 
 Ollama normally rejects requests from browser extensions with a 403 error. In Chrome, Spookify handles this itself: it rewrites the Origin header on its own requests to Ollama, and only those. Web pages still can't reach Ollama.
 
