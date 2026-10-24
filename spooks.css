@@ -34,6 +34,16 @@
   animation: spook-materialise 0.6s ease-out both;
 }
 
+/* Some sites give images a backdrop (Wikipedia's dark mode makes them white
+   so transparent diagrams stay readable). Our GIFs are transparent: keep them so. */
+:root img.spook-root,
+:root .spook-root img {
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+}
+
 /* Overlay box: sized and placed over the anchor by content.js. */
 .spook-root.spook-box {
   position: absolute !important;

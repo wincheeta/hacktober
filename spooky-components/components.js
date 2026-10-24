@@ -39,11 +39,12 @@ const SPOOKY_GIFS = [
   { id: "bat-fly", path: "Pictures/bat2.gif", use: "overlay", placement: "peek-corner", size: 0.35, weight: 1 },
   { id: "bat-swarm", path: "Pictures/batgroup.gif", use: "overlay", placement: "center", size: 0.6, weight: 1 },
   { id: "witch", path: "Pictures/witch1.gif", use: "overlay", placement: "bottom-left", size: 0.4, minSize: 200, weight: 1 },
-  { id: "witch-cauldron", path: "Pictures/witch2.gif", use: "overlay", placement: "bottom-right", size: 0.35, weight: 1 },
   { id: "crawler", path: "Pictures/creeper.gif", use: "overlay", placement: "bottom-left", size: 0.35, weight: 1 },
   { id: "spooky-guys", path: "Pictures/guys.gif", use: "overlay", placement: "center", size: 0.6, minSize: 250, weight: 1 },
   { id: "skull-small", path: "Pictures/skull1.gif", use: "overlay", placement: "peek-corner", size: 0.15, weight: 1 },
   { id: "spider-small", path: "Pictures/spider.gif", use: "overlay", placement: "hang-top", size: 0.15, weight: 1 },
+  // Walks across its own frame, so it goes in the middle with room to move.
+  { id: "spider-walk", path: "Pictures/spider4.gif", use: "overlay", placement: "center", size: 0.5, weight: 1 },
 ];
 
 const SPOOKY_DECOR = {
