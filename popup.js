@@ -13,6 +13,8 @@ let tabId = null;
 // storage.sync with the same shape as SPOOKY_CONFIG; content.js merges it over the file.
 const BASE_CONFIG = typeof SPOOKY_CONFIG !== "undefined" ? SPOOKY_CONFIG : { levels: {}, jumpscare: {} };
 const seconds = (ms) => `${(ms / 1000).toFixed(ms % 1000 ? 1 : 0)}s`;
+const NEVER_MS = typeof JUMPSCARE_NEVER_MS !== "undefined" ? JUMPSCARE_NEVER_MS : 600000;
+const cooldown = (ms) => (ms >= NEVER_MS ? "Never" : seconds(ms));
 const TUNING = [
   { path: ["levels", "modelSpooks"], label: "Model spooks (Ollama)", min: 0, max: 10, step: 1 },
   { path: ["levels", "wordSwaps"], label: "Word swaps (Ollama)", min: 0, max: 10, step: 1 },
@@ -24,7 +26,7 @@ const TUNING = [
   { path: ["levels", "skeletor"], label: "Skeletor facts", min: 0, max: 10, step: 1 },
   { path: ["maxDecor"], label: "Max decorations per page", min: 0, max: 40, step: 1 },
   { path: ["jumpscare", "minDelayMs"], label: "Jump-scare earliest after", min: 0, max: 60000, step: 500, format: seconds },
-  { path: ["jumpscare", "cooldownMs"], label: "Jump-scare cooldown", min: 0, max: 600000, step: 5000, format: seconds },
+  { path: ["jumpscare", "cooldownMs"], label: "Jump-scare cooldown", min: 0, max: NEVER_MS, step: 5000, format: cooldown },
   { path: ["jumpscare", "durationMs"], label: "Jump-scare length", min: 200, max: 5000, step: 100, format: seconds },
 ];
 
@@ -114,6 +116,29 @@ async function refresh() {
   if (list.childElementCount !== names.length) {
     list.replaceChildren(...names.map((n) => Object.assign(document.createElement("option"), { value: n })));
   }
+
+  refreshSwaps();
+}
+
+// The words the page's content script swapped, as "from → to" rows.
+let shownSwaps = "";
+async function refreshSwaps() {
+  if (tabId == null) return;
+  const reply = await chrome.tabs.sendMessage(tabId, { type: "get-swaps" }).catch(() => null);
+  const swaps = (reply && reply.swaps) || [];
+  const key = JSON.stringify(swaps);
+  if (key === shownSwaps) return; // don't rebuild while the user scrolls the list
+  shownSwaps = key;
+  const span = (cls, text) => Object.assign(document.createElement("span"), { className: cls, textContent: text });
+  $("swaps-list").replaceChildren(
+    ...swaps.map(({ from, to }) => {
+      const li = document.createElement("li");
+      li.append(span("from", from), span("muted", "→"), span("to", to));
+      return li;
+    })
+  );
+  $("swaps-count").textContent = swaps.length ? `(${swaps.length})` : "";
+  $("swaps-empty").hidden = swaps.length > 0;
 }
 
 enabledEl.addEventListener("change", () => chrome.storage.sync.set({ enabled: enabledEl.checked }));

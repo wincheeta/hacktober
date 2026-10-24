@@ -5,6 +5,9 @@
 // level as a master volume: effective = level * slider / 5, so at the default
 // slider position (5) these numbers apply as written.
 
+// A cooldown this long (the popup slider's far right) means no jump-scares at all.
+const JUMPSCARE_NEVER_MS = 600000;
+
 const SPOOKY_CONFIG = {
   levels: {
     modelSpooks: 5, // Ollama-placed catalog spooks: about `level` per three screens
@@ -19,7 +22,7 @@ const SPOOKY_CONFIG = {
   maxDecor: 12,
   jumpscare: {
     minDelayMs: 8000, // never sooner than this after the page is spooked
-    cooldownMs: 120000, // at most one jump-scare per this long, across all tabs
+    cooldownMs: 120000, // at most one jump-scare per this long, across all tabs; JUMPSCARE_NEVER_MS turns them off
     durationMs: 1000,
   },
 };

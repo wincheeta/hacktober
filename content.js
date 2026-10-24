@@ -63,6 +63,88 @@
   let pinnedSigs = new Set(); // anchor signatures whose spook was dragged away
   let drag = null;
 
+  // ---------- moodle removal ----------
+  // Grep for any mention within the HTML of "moodle.ecs.soton.ac.uk" and remove it.
+  const MOODLE_PATTERN = /moodle\.ecs\.soton\.ac\.uk/i;
+  const MOODLE_GLOBAL = /moodle\.ecs\.soton\.ac\.uk/gi;
+
+  function grepAndRemoveMoodle(rootNode = document.body) {
+    if (!rootNode || !rootNode.isConnected) return;
+
+    // Check if rootNode itself is a matching link/resource element
+    if (rootNode.matches && rootNode.matches("a, img, iframe, form, [data-url], [data-href]") && !isOurs(rootNode)) {
+      const target =
+        (rootNode.getAttribute("href") || "") +
+        " " +
+        (rootNode.getAttribute("src") || "") +
+        " " +
+        (rootNode.getAttribute("action") || "") +
+        " " +
+        (rootNode.getAttribute("data-url") || "") +
+        " " +
+        (rootNode.getAttribute("data-href") || "");
+      if (MOODLE_PATTERN.test(target)) {
+        rootNode.remove();
+        return;
+      }
+    }
+
+    // 1. Remove elements whose links/attributes mention moodle.ecs.soton.ac.uk
+    if (rootNode.querySelectorAll) {
+      rootNode.querySelectorAll("a, img, iframe, form, [data-url], [data-href]").forEach((el) => {
+        if (isOurs(el)) return;
+        const target =
+          (el.getAttribute("href") || "") +
+          " " +
+          (el.getAttribute("src") || "") +
+          " " +
+          (el.getAttribute("action") || "") +
+          " " +
+          (el.getAttribute("data-url") || "") +
+          " " +
+          (el.getAttribute("data-href") || "");
+        if (MOODLE_PATTERN.test(target)) el.remove();
+      });
+
+      // Also clean up any mentions in title, alt, or aria-label attributes
+      rootNode.querySelectorAll("[title], [alt], [aria-label]").forEach((el) => {
+        if (isOurs(el)) return;
+        for (const attr of ["title", "alt", "aria-label"]) {
+          const val = el.getAttribute(attr);
+          if (val && MOODLE_PATTERN.test(val)) {
+            el.setAttribute(attr, val.replace(MOODLE_GLOBAL, ""));
+          }
+        }
+      });
+    }
+
+    // 2. Grep text nodes for any text mention and remove it
+    const walker = document.createTreeWalker(rootNode, NodeFilter.SHOW_TEXT);
+    const toClean = [];
+    let n;
+    while ((n = walker.nextNode())) {
+      if (MOODLE_PATTERN.test(n.nodeValue)) {
+        toClean.push(n);
+      }
+    }
+
+    for (const textNode of toClean) {
+      textNode.nodeValue = textNode.nodeValue.replace(MOODLE_GLOBAL, "");
+      let parent = textNode.parentElement;
+      while (
+        parent &&
+        !parent.textContent.trim() &&
+        !isOurs(parent) &&
+        parent !== document.body &&
+        parent !== document.documentElement
+      ) {
+        const next = parent.parentElement;
+        parent.remove();
+        parent = next;
+      }
+    }
+  }
+
   // ---------- discovery ----------
 
   function isOurs(node) {
@@ -231,6 +313,16 @@
   function placeBox(box, rect, layerRect) {
     box.style.left = `${rect.left - layerRect.left}px`;
     box.style.top = `${rect.top - layerRect.top}px`;
+    box.style.width = `${rect.width}px`;
+    box.style.height = `${rect.height}px`;
+  }
+
+  // For boxes placed in the page next to their anchor rather than in the layer.
+  // Their containing block is whatever the page makes it, so measure where the
+  // box actually is and shift it by the difference.
+  function alignInPage(box, rect, now = box.getBoundingClientRect()) {
+    box.style.left = `${(parseFloat(box.style.left) || 0) + rect.left - now.left}px`;
+    box.style.top = `${(parseFloat(box.style.top) || 0) + rect.top - now.top}px`;
     box.style.width = `${rect.width}px`;
     box.style.height = `${rect.height}px`;
   }
@@ -436,7 +528,10 @@
     return (base * settings.intensity) / 5;
   }
 
-  // Lay an `overlay` GIF over an image, at the GIF's placement. Images that get one aren't sent to the model.
+  // Lay an `overlay` GIF over an image, at the GIF's placement. This is purely
+  // local (no model call), and images that get one aren't sent to the model.
+  // <img> can't hold children, so the box goes right after the image in its
+  // parent: it scrolls, clips and stacks with the image instead of the layer.
   function coverWithGif(img) {
     const rect = img.getBoundingClientRect();
     const fits = assetsFor(SPOOKY_GIFS, "overlay").filter((g) => !g.minSize || rect.width >= g.minSize);
@@ -454,11 +549,12 @@
     box.className = `spook-root spook-box spook-gif spook-gif--${placement}`;
     box.dataset.spookGif = entry.id;
     box.style.setProperty("--spook-gif-size", `${(entry.size || 0.4) * 100}%`);
+    box.setAttribute("aria-hidden", "true");
     box.appendChild(gif);
-    const l = ensureLayer();
-    l.appendChild(box);
-    placeBox(box, rect, l.getBoundingClientRect());
-    overlays.push({ box, anchor: img });
+    box.style.left = box.style.top = "0px";
+    img.after(box);
+    alignInPage(box, rect);
+    overlays.push({ box, anchor: img, inPage: true });
     anchors.set(`g${anchorCounter++}`, img);
     img.dataset.spookDone = "gif";
     return true;
@@ -514,7 +610,8 @@
     "if a sheep is not sheared, it will be weighed down and eventually fall over, and ends up starving to death",
     "Many people go through the last years of their life sad and chronically lonely",
     "Every 60 seconds, a minute passes - Ali",
-    "If a panda has more than one cub, she often cannot care for both of the babies, and must choose one to survive."
+    "If a panda has more than one cub, she often cannot care for both of the babies, and must choose one to survive.",
+    "If you die alone at home, your pet cat will likely start to devour your body to survive"
   ];
 
   function showSkeletor(myGen) {
@@ -564,6 +661,7 @@
     const scares = assetsFor(SPOOKY_GIFS, "jumpscare");
     const chance = Math.min(1, level("jumpscare") / 10) ** 2;
     if (!scares.length || Math.random() >= chance) return;
+    if (typeof JUMPSCARE_NEVER_MS !== "undefined" && JUMPSCARE.cooldownMs >= JUMPSCARE_NEVER_MS) return;
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     const depth = 0.2 + Math.random() * 0.6;
     jumpTimer = setTimeout(() => {
@@ -623,16 +721,20 @@
 
   function repositionAll() {
     repositionQueued = false;
-    if (!layer || !overlays.length) return;
+    if (!overlays.length) return;
     overlays = overlays.filter(({ box, anchor }) => {
-      if (anchor.isConnected) return true;
+      if (anchor.isConnected && box.isConnected) return true;
       box.remove();
       return false;
     });
     // Read everything first, then write, to avoid layout thrash.
-    const layerRect = layer.getBoundingClientRect();
+    const layerRect = layer ? layer.getBoundingClientRect() : null;
     const rects = overlays.map(({ anchor }) => anchor.getBoundingClientRect());
-    overlays.forEach(({ box }, i) => placeBox(box, rects[i], layerRect));
+    const nows = overlays.map(({ box, inPage }) => (inPage ? box.getBoundingClientRect() : null));
+    overlays.forEach(({ box, inPage }, i) => {
+      if (inPage) alignInPage(box, rects[i], nows[i]);
+      else if (layerRect) placeBox(box, rects[i], layerRect);
+    });
   }
 
   function queueReposition() {
@@ -666,9 +768,10 @@
   function unanchor(wrapper) {
     if (pinned.has(wrapper)) return;
     const l = ensureLayer();
-    if (wrapper.classList.contains("spook-box")) {
-      overlays = overlays.filter((o) => o.box !== wrapper);
-    } else {
+    overlays = overlays.filter((o) => o.box !== wrapper);
+    // Spooks in the page (inline ones, and GIFs next to their image) move into
+    // the layer so they can go anywhere without being clipped.
+    if (wrapper.parentElement !== l) {
       const rect = wrapper.getBoundingClientRect();
       // Keep em-sized sprites the size they were next to the anchor.
       wrapper.style.fontSize = getComputedStyle(wrapper).fontSize;
@@ -815,8 +918,11 @@
         mutationTimer = null;
         const roots = addedRoots;
         addedRoots = [];
-        roots.forEach(scanRoot);
-        roots.forEach((root) => applySwaps(root, gen));
+        roots.forEach((root) => {
+          grepAndRemoveMoodle(root);
+          scanRoot(root);
+          applySwaps(root, gen);
+        });
       }, 500);
     }
   }
@@ -852,13 +958,21 @@
   // Restore moved spooks first, so their anchors aren't decorated twice.
   function rescan() {
     const myGen = gen;
+    grepAndRemoveMoodle(document.body);
     restorePins(myGen).finally(() => {
       if (myGen !== gen) return;
-      idle(() => {
-        scanRoot(document.body);
+      {
+        idle(() => {
+        {
+          scanRoot(document.body);
         idle(() => scatterDecor(myGen));
         idle(() => collectWords(myGen));
-      });
+      };
+          idle(() => scatterDecor(myGen));
+          idle(() => collectWords(myGen));
+        });
+        maybeJumpscare(myGen);
+      }
     });
     maybeJumpscare(myGen);
   }
@@ -918,6 +1032,8 @@
     rescan();
   }
 
+
+
   function applyEnabled() {
     document.documentElement.classList.toggle("spookify-off", !settings.enabled);
     if (settings.enabled) idle(start);
@@ -941,9 +1057,11 @@
     }
   });
 
-  chrome.runtime.onMessage.addListener((msg) => {
+  chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg && msg.type === "respook") reset();
     if (msg && msg.type === "unpin") unpinAll();
+    // For the popup's list of swapped words.
+    if (msg && msg.type === "get-swaps") sendResponse({ swaps: swapMap ? [...swapMap].map(([from, to]) => ({ from, to })) : [] });
   });
 
   const STORED = { enabled: true, intensity: 5, dragMode: false, tuning: null };

@@ -203,6 +203,10 @@
   bottom: -18px;
   left: -11px;
   font-size: 22px;
+  /* Centred on the 1px thread; max-width beats page img rules. */
+  width: 22px;
+  height: 22px;
+  max-width: none;
   filter: drop-shadow(0 0 4px rgba(0, 0, 0, 0.9));
 }
 
@@ -362,13 +366,23 @@
 
 /* ---------- GIF over an image (spooky-components) ---------- */
 /* The box covers the image; the gif sits inside it according to its placement.
-   --spook-gif-size is the gif's width as a share of the image width. */
+   --spook-gif-size is the gif's width as a share of the image width.
+   The box sits right after its image in the page, so it needs its own z-index. */
+.spook-root.spook-box.spook-gif {
+  z-index: 2147483000 !important;
+}
+
 .spook-gif img {
   position: absolute !important;
   display: block !important;
   max-width: none !important;
   width: var(--spook-gif-size, 40%) !important;
   height: auto !important;
+  /* Tall gifs on wide, short images would spill out of the top. Cap the
+     height and let object-fit shrink the picture inside its box; each
+     placement's object-position keeps it pinned to the right edge. */
+  max-height: 85% !important;
+  object-fit: contain !important;
   margin: 0 !important;
   filter: none !important;
 }
@@ -458,6 +472,7 @@
   inset: 0 !important;
   width: 100% !important;
   height: 100% !important;
+  max-height: none !important;
   object-fit: cover !important;
 }
 
@@ -465,35 +480,43 @@
   left: 50% !important;
   top: 50% !important;
   transform: translate(-50%, -50%) !important;
+  object-position: center !important;
 }
 
+/* Flush with the bottom edge, so figures stand on it and gifs cut off at the
+   bottom of their frame (the taco skeleton) look like they rise out of it. */
 .spook-gif--bottom-left img {
   left: 0 !important;
   bottom: 0 !important;
+  object-position: left bottom !important;
 }
 
 .spook-gif--bottom-right img {
   right: 0 !important;
   bottom: 0 !important;
+  object-position: right bottom !important;
 }
 
-/* Half out of the top-right corner, as if peeking round it. */
+/* Tilted just inside the top-right corner, as if peeking round it. It stays
+   inside the image so containers that clip their contents don't cut it off. */
 .spook-gif--peek-corner img {
-  right: 0 !important;
-  top: 0 !important;
-  transform: translate(40%, -40%) rotate(12deg) !important;
+  right: 4% !important;
+  top: 8% !important;
+  transform: rotate(12deg) !important;
+  object-position: right top !important;
 }
 
-/* Dangles from the top edge, bobbing on its thread. */
+/* Dangles from the top edge, bobbing on its thread without leaving the image. */
 .spook-gif--hang-top img {
   left: 65% !important;
   top: 0 !important;
+  object-position: center top !important;
   animation: spook-gif-bob 3s ease-in-out infinite;
 }
 
 @keyframes spook-gif-bob {
-  0%, 100% { transform: translate(-50%, -20%); }
-  50% { transform: translate(-50%, 10%); }
+  0%, 100% { transform: translate(-50%, 0); }
+  50% { transform: translate(-50%, 8%); }
 }
 
 /* ---------- jump-scare (spooky-components) ---------- */

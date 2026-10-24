@@ -74,6 +74,10 @@
     .tune { display: grid; grid-template-columns: 1fr 52px; align-items: center; gap: 0 8px; margin: 8px 0; }
     .tune label { grid-column: 1 / -1; font-size: 12px; color: var(--muted); }
     .tune output { text-align: right; font-variant-numeric: tabular-nums; }
+    #swaps-list { list-style: none; margin: 8px 0 0; padding: 0; max-height: 180px; overflow-y: auto; }
+    #swaps-list li { display: grid; grid-template-columns: 1fr auto 1fr; gap: 6px; padding: 2px 0; }
+    #swaps-list .from { color: var(--muted); text-decoration: line-through; overflow-wrap: anywhere; }
+    #swaps-list .to { color: var(--orange); overflow-wrap: anywhere; }
   </style>
 </head>
 <body>
@@ -112,6 +116,12 @@
     <div class="muted" id="queue-text"></div>
     <div class="error" id="error-text" hidden></div>
   </div>
+
+  <details id="swaps">
+    <summary>Word swaps on this page <span id="swaps-count" class="muted"></span></summary>
+    <ul id="swaps-list"></ul>
+    <div class="muted" id="swaps-empty">No words swapped yet.</div>
+  </details>
 
   <details id="tuning">
     <summary>Tuning</summary>
