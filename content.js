@@ -541,20 +541,33 @@
     document.body.appendChild(container);
   }
 
-  // Maybe arm one jump-scare: after minDelayMs, it fires on the next scroll.
+  // Maybe arm one jump-scare at a random depth of the page (20-80% of the way
+  // down); it fires when the reader scrolls past it, but never before minDelayMs.
   function maybeJumpscare(myGen) {
     const scares = assetsFor(SPOOKY_GIFS, "jumpscare");
     const chance = Math.min(1, level("jumpscare") / 10) ** 2;
     if (!scares.length || Math.random() >= chance) return;
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const depth = 0.2 + Math.random() * 0.6;
     jumpTimer = setTimeout(() => {
       jumpTimer = null;
-      const fire = () => {
-        jumpUnlisten = null;
+      // Captured on document so pages that scroll an inner container count too.
+      let target = null;
+      const onScroll = (e) => {
+        const el = e.target === document ? document.scrollingElement || document.documentElement : e.target;
+        if (!el || el.clientHeight < window.innerHeight / 2) return; // a small scrolling widget, not the page
+        // Fixed in pixels on the first scroll, so infinite feeds that grow as
+        // they're scrolled don't keep pushing it out of reach.
+        if (target === null) target = depth * (el.scrollHeight - el.clientHeight);
+        if (el.scrollTop < target) return;
+        jumpUnlisten();
         if (myGen === gen && running) jumpscare(pickWeighted(scares));
       };
-      window.addEventListener("scroll", fire, { once: true, passive: true });
-      jumpUnlisten = () => window.removeEventListener("scroll", fire);
+      document.addEventListener("scroll", onScroll, { capture: true, passive: true });
+      jumpUnlisten = () => {
+        document.removeEventListener("scroll", onScroll, { capture: true });
+        jumpUnlisten = null;
+      };
     }, JUMPSCARE.minDelayMs);
   }
 
@@ -823,8 +836,13 @@
   function rescan() {
     const myGen = gen;
     restorePins(myGen).finally(() => {
-      if (myGen === gen) idle(() => scanRoot(document.body));
+      if (myGen !== gen) return;
+      idle(() => {
+        scanRoot(document.body);
+        idle(() => scatterDecor(myGen));
+      });
     });
+    maybeJumpscare(myGen);
   }
 
   function clearSpooks() {
@@ -882,6 +900,7 @@
     rescan();
   }
 
+<<<<<<< HEAD
   function rescan() {
     const myGen = gen;
     idle(() => {
@@ -892,6 +911,8 @@
     maybeJumpscare(myGen);
   }
 
+=======
+>>>>>>> 0e4941f (+jumpscare)
   function applyEnabled() {
     document.documentElement.classList.toggle("spookify-off", !settings.enabled);
     if (settings.enabled) idle(start);

@@ -13,12 +13,12 @@ const SPOOKY_CONFIG = {
     gifOverlays: 5, // chance an eligible image gets a GIF: level / 10
     decor: 5, // scattered SVG decor: about level / 2 per three screens, capped by maxDecor
     cornerCobwebs: 4, // 0 hides the corner cobwebs, anything else shows them
-    jumpscare: 3, // chance per page of one jump-scare: (level / 10)^2, so 3 = 9%, 5 = 25%, 10 = always
+    jumpscare: 10, // chance per page of one jump-scare: (level / 10)^2, so 3 = 9%, 5 = 25%, 10 = always
   },
   maxDecor: 12,
   jumpscare: {
     minDelayMs: 8000, // never sooner than this after the page is spooked
     cooldownMs: 120000, // at most one jump-scare per this long, across all tabs
-    durationMs: 1200,
+    durationMs: 1000,
   },
 };
