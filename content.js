@@ -840,6 +840,7 @@
       idle(() => {
         scanRoot(document.body);
         idle(() => scatterDecor(myGen));
+        idle(() => collectWords(myGen));
       });
     });
     maybeJumpscare(myGen);
@@ -900,19 +901,6 @@
     rescan();
   }
 
-<<<<<<< HEAD
-  function rescan() {
-    const myGen = gen;
-    idle(() => {
-      scanRoot(document.body);
-      idle(() => scatterDecor(myGen));
-      idle(() => collectWords(myGen));
-    });
-    maybeJumpscare(myGen);
-  }
-
-=======
->>>>>>> 0e4941f (+jumpscare)
   function applyEnabled() {
     document.documentElement.classList.toggle("spookify-off", !settings.enabled);
     if (settings.enabled) idle(start);
