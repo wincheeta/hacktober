@@ -4,7 +4,7 @@ A browser extension (Manifest V3) that makes every web page spooky.
 
 - **Instant theme.** Every page turns dark with an orange and black palette at first paint. This is plain CSS, so it never slows the page down.
 - **Model-placed spooks.** A local [Ollama](https://ollama.com) model looks at small batches of page elements near where you're reading. It decides which pre-defined decoration goes where: ghosts, bats, spiders, cobwebs, pumpkins, glowing eyes, creepy captions and blood drips.
-- **Haunted words.** The model picks up to 10 common words on each page and swaps them for spooky ones everywhere they appear ("cart" becomes "coffin", "team" becomes "coven"). Swaps carry over to later pages, up to 50 in all; once that fills up, each new page's swaps replace the ones whose words have come up least often on the pages you visited. It also rewrites a few headings into spooky versions; hover a rewritten heading to see the original. Turning Spookify off restores the original text.
+- **Haunted words.** The model picks up to 10 common words on each page and swaps them for spooky ones everywhere they appear ("cart" becomes "coffin", "team" becomes "coven"). Swaps carry over to later pages on the same site, up to 50 per site; once that fills up, each new page's swaps replace the ones whose words have come up least often on that site. Forms, buttons and labels are left alone, and so are login and payment pages. It also rewrites a few headings into spooky versions; hover a rewritten heading to see the original. Turning Spookify off restores the original text.
 - **Never blocks the page.** The page loads exactly as it would without the extension. Spooks fade in a few seconds later, and more appear as you scroll.
 - **GIFs and decorations.** Some images get a spooky GIF laid over them as you scroll, each in its own spot: covering the image, peeking from a corner, or dangling from the top. A few of the same GIFs are scattered across the page too, with cobwebs in the top corners. Very occasionally a jump-scare flashes up. These are placed at random locally, without the model.
 - **Works offline.** If Ollama isn't running, spooks are placed at random instead.
@@ -15,6 +15,13 @@ The model only picks element ids, spook ids and positions, plus a short line of 
 
 ### 1. Run Ollama
 
+The setup script installs Ollama if it's missing, starts it, downloads `llama3.2:3b`, and asks whether you'll use Firefox (see below):
+
+- **macOS / Linux:** `./setup.sh` (options: `--model <name>`, `--firefox`, `--origin <origin>`). On macOS without Homebrew, install the [Ollama app](https://ollama.com/download/mac) first.
+- **Windows:** double-click `setup.bat`, or run `.\setup.ps1` (options: `-Model <name>`, `-Firefox`, `-Origin <origin>`). Installs Ollama with winget.
+
+Or do it by hand:
+
 ```
 ollama pull llama3.2:3b
 ollama serve
@@ -24,11 +31,13 @@ Smaller models such as `llama3.2:1b` or `qwen2.5:1.5b` reply faster. You can swi
 
 Ollama normally rejects requests from browser extensions with a 403 error. In Chrome, Spookify handles this itself: it rewrites the Origin header on its own requests to Ollama, and only those. Web pages still can't reach Ollama.
 
-Firefox doesn't let extensions rewrite their own requests. There, or if the popup still reports a 403, restart Ollama with:
+Firefox doesn't let extensions rewrite their own requests. There, or if the popup still reports a 403, restart Ollama with Spookify's own origin, which the popup's error message shows:
 
 ```
-OLLAMA_ORIGINS="chrome-extension://*,moz-extension://*" ollama serve
+OLLAMA_ORIGINS="moz-extension://<uuid>" ollama serve
 ```
+
+Use the exact origin rather than `moz-extension://*`: the wildcard lets every installed extension use Ollama. The setup scripts take it as `--origin` / `-Origin`, and allow every Firefox extension if it's left out.
 
 ### 2. Load the extension
 
@@ -38,17 +47,15 @@ OLLAMA_ORIGINS="chrome-extension://*,moz-extension://*" ollama serve
 2. Turn on **Developer mode**.
 3. Click **Load unpacked** and select this directory.
 
+Chrome may warn that `background.scripts` is ignored. That key is there for Firefox, and the warning is harmless.
+
 **Firefox (121+)**
 
-Firefox needs a slightly different manifest (it runs the background as scripts, not a service worker), so build a Firefox copy first:
-
-```sh
-node build-firefox.js
-```
-
 1. Open `about:debugging#/runtime/this-firefox`.
-2. Click **Load Temporary Add-on…** and select `dist/firefox/manifest.json`. Re-run the build after each change.
+2. Click **Load Temporary Add-on…** and select `manifest.json` in this directory. After a change, click **Reload**.
 3. If the popup shows **Allow access to Ollama**, click it. Also allow the extension to run on all sites when Firefox asks.
+
+Both browsers use the same manifest: Chrome runs `background.service_worker`, Firefox runs `background.scripts`. `node build-firefox.js` still writes a Firefox-only copy to `dist/firefox` (without the `service_worker` key) if you want one, for example to package it.
 
 ## Using it
 
@@ -57,6 +64,8 @@ Browse normally. Click the toolbar icon to open the popup:
 | Control | What it does |
 |---|---|
 | Spook every page | Turns the theme and spooks on or off instantly. |
+| Move spooks by dragging | Lets you drag spooks around; their positions are saved per page. |
+| Hide ECS Moodle links | On by default. Removes links, forms, images and text mentioning `moodle.ecs.soton.ac.uk`. Reload the page after turning it off to get them back. |
 | Ollama model | Any model Ollama has installed. The list fills from `ollama list`. |
 | Intensity | Master volume for every kind of spook. At the middle position, the levels in `config.js` apply as written. |
 | Tuning | One slider per value in `config.js`: each kind of spook, max decorations and the jump-scare timings. |
@@ -88,7 +97,7 @@ The flow for a page:
 5. Ollama gets a short prompt and a JSON schema with one variant per spook, so it must reply with valid placements. The prompt asks for compact JSON with one-letter keys because output tokens dominate the response time on CPU, and it lists the spooks the tab already shows so small models vary their picks. Each request times out after 40 seconds and the model is kept loaded for 30 minutes.
 6. The page validates the reply and renders the spooks. Anything already on screen is drawn as an overlay, so text you're reading never jumps. Only elements still below the screen get decorations inserted into the page flow.
 7. A `MutationObserver` and URL check pick up infinite scroll and single-page-app navigation.
-8. Once per page, the 40 most common words on it that have no swap yet go to the model in a separate request, which runs before any queued batch. The schema only lets the model pick words from that list. The background keeps a dictionary of up to 50 swaps in `storage.local` with a running count of how often each word appeared on visited pages; new swaps evict the lowest counts, and every page gets the whole dictionary. The swaps are applied by changing text node values, never markup, and new content gets them too. Headings are rewritten from the same batch request as the spooks, and only when their text is in a single text node.
+8. Once per page, the 40 most common words on it that have no swap yet go to the model in a separate request, which runs before any queued batch. The schema only lets the model pick words from that list. The background keeps a dictionary of up to 50 swaps per site (by hostname, for the 100 most recently used sites) in `storage.local`, with a running count of how often each word appeared on that site's pages; new swaps evict the lowest counts, and every page gets its site's whole dictionary. Dictionaries are per site because the model picks swaps from page text, so a shared one would let any site plant words on every other site. The swaps are applied by changing text node values, never markup, and new content gets them too. Headings are rewritten from the same batch request as the spooks, and only when their text is in a single text node.
 
 Answers are cached per element for the browser session, so revisiting a page shows the same spooks without asking the model again.
 
@@ -101,7 +110,7 @@ The defaults live in [spooky-components/config.js](spooky-components/config.js);
 | Level | Controls |
 |---|---|
 | `modelSpooks` | Spooks placed by Ollama, about this many per three screens. |
-| `wordSwaps` | New words Ollama swaps for spooky ones on each page: level × 1.6, up to 10 (the kept swaps across pages cap at 50). Offline, a built-in word list is used. |
+| `wordSwaps` | New words Ollama swaps for spooky ones on each page: level × 1.6, up to 10 (the kept swaps per site cap at 50). Offline, a built-in word list is used. |
 | `headingRewrites` | Headings Ollama rewrites per batch: level ÷ 4 rounded, up to 2. |
 | `gifOverlays` | Chance that an image gets a GIF: level ÷ 10. |
 | `decor` | GIFs scattered over the page, about half this many per three screens, up to `maxDecor`. |

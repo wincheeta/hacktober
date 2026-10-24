@@ -78,9 +78,10 @@ self.SpookySkeletor = (() => {
     // A native image drag (from the slightest wobble) would swallow the click.
     img.draggable = false;
 
-    // He or his bubble opens the chat.
-    container.addEventListener("click", () => {
-      if (!hooks.dragMode()) toggleSkeletorChat(); // in drag mode a click is part of a drag
+    // He or his bubble opens the chat. Only real clicks: the page's own scripts
+    // could otherwise open the chat and use it to reach Ollama.
+    container.addEventListener("click", (e) => {
+      if (e.isTrusted && !hooks.dragMode()) toggleSkeletorChat(); // in drag mode a click is part of a drag
     });
 
     container.appendChild(bubble);
@@ -161,6 +162,8 @@ self.SpookySkeletor = (() => {
     form.append(input, send);
     form.addEventListener("submit", (e) => {
       e.preventDefault();
+      // form.submit() fires no event, and requestSubmit() from page scripts is untrusted.
+      if (!e.isTrusted) return;
       const text = input.value.trim();
       if (!text || chatBusy) return;
       input.value = "";

@@ -3,10 +3,11 @@
   "name": "Spookify",
   "version": "0.2.0",
   "description": "Makes every web page spooky: a dark orange/black theme plus decorations placed by a local Ollama model.",
-  "permissions": ["storage", "declarativeNetRequestWithHostAccess"],
+  "permissions": ["storage", "declarativeNetRequestWithHostAccess", "offscreen"],
   "host_permissions": ["http://localhost:11434/*", "http://127.0.0.1:11434/*"],
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "background.js",
+    "scripts": ["spooks.js", "modules/prompts.js", "background.js"]
   },
   "action": {
     "default_title": "Spookify",
@@ -34,7 +35,7 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["Pictures/*.gif", "Pictures/*.webp", "spooky-components/*.svg"],
+      "resources": ["Pictures/*.gif", "Pictures/*.webp", "spooky-components/*.svg", "audio/*"],
       "matches": ["<all_urls>"]
     }
   ],

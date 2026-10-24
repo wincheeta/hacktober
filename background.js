@@ -1,14 +1,16 @@
 // Spookify background worker: per-tab request queue, Ollama client and cache.
 // Chrome runs this as a service worker (spooks.js and modules/prompts.js via
-// importScripts); Firefox runs it as an event page with those listed first by
-// build-firefox.js.
+// importScripts); Firefox runs it as an event page with those listed first in
+// the manifest's background.scripts.
 if (typeof importScripts === "function" && !self.Spookify) importScripts("spooks.js", "modules/prompts.js");
 
 const S = self.Spookify;
 const P = self.SpookifyPrompts;
 const OLLAMA = "http://localhost:11434";
+// What to put in OLLAMA_ORIGINS so Ollama allows this extension and no other.
+const SELF_ORIGIN = new URL(chrome.runtime.getURL("")).origin;
 const DEFAULTS = { enabled: true, model: "", intensity: 5 }; // model "" = auto-detect
-const PREFERRED_MODEL = "llama3.2:3b";
+const PREFERRED_MODEL = "gemma4:e2b";
 const AUTO_MODEL_TTL_MS = 60000;
 const REQUEST_TIMEOUT_MS = 40000; // a cold model load plus an uncached prompt takes ~25s on CPU
 const STALE_MS = 20000; // > one CPU batch (~5-8s) plus the words job ahead of it
@@ -82,7 +84,7 @@ async function ollamaFetch(path, body, signal) {
     throw new OllamaError(`Ollama is not reachable at ${OLLAMA}. Is "ollama serve" running?`, { offline: true });
   }
   if (res.status === 403) {
-    throw new OllamaError('Ollama rejected the extension (403). Restart it with OLLAMA_ORIGINS="chrome-extension://*,moz-extension://*".');
+    throw new OllamaError(`Ollama rejected the extension (403). Restart it with OLLAMA_ORIGINS="${SELF_ORIGIN}".`);
   }
   if (res.status === 404 && body && body.model) {
     throw new OllamaError(`Model "${body.model}" is not installed. Run: ollama pull ${body.model}`);
@@ -96,7 +98,7 @@ async function ollamaFetch(path, body, signal) {
 
 // ---------- model choice ----------
 // With no model set, use what's installed: the preferred model if present,
-// else the smallest llama, else the smallest chat model (small = fast on CPU).
+// else the smallest gemma4, else the smallest chat model (small = fast on CPU).
 
 let autoModel = "";
 let autoCheckedAt = 0;
@@ -108,8 +110,8 @@ function pickModel(models) {
   });
   if (chat.some((m) => m.name === PREFERRED_MODEL)) return PREFERRED_MODEL;
   const bySize = (a, b) => (a.size || 0) - (b.size || 0);
-  const llamas = chat.filter((m) => /llama/i.test(m.name)).sort(bySize);
-  if (llamas.length) return llamas[0].name;
+  const gemmas = chat.filter((m) => /gemma/i.test(m.name)).sort(bySize);
+  if (gemmas.length) return gemmas[0].name;
   return chat.sort(bySize).map((m) => m.name)[0] || "";
 }
 
@@ -208,7 +210,7 @@ const cacheReady = (session ? session.get("cache") : Promise.resolve({}))
   .then((data) => {
     for (const [k, v] of Object.entries((data && data.cache) || {})) cache.set(k, v);
   })
-  .catch(() => {});
+  .catch(() => { });
 
 let cacheSaveTimer = null;
 function saveCache() {
@@ -216,7 +218,7 @@ function saveCache() {
   cacheSaveTimer = setTimeout(() => {
     cacheSaveTimer = null;
     while (cache.size > CACHE_LIMIT) cache.delete(cache.keys().next().value);
-    session.set({ cache: Object.fromEntries(cache) }).catch(() => {});
+    session.set({ cache: Object.fromEntries(cache) }).catch(() => { });
   }, 1000);
 }
 
@@ -228,59 +230,88 @@ function wordsKey(url) {
   return `w|${url.split("#")[0]}`;
 }
 
-// ---------- swap dictionary ----------
-// Word swaps carry over from page to page (storage.local), up to
-// S.MAX_SWAP_DICT. `seen` adds up how often the word appeared on the pages
-// visited; once the dictionary is full, each page's new swaps replace the
-// entries with the lowest count.
+// ---------- swap dictionaries ----------
+// Word swaps carry over from page to page within a site (storage.local), up
+// to S.MAX_SWAP_DICT per site. They never cross sites: the model picks swaps
+// from page text, so one site could otherwise steer it into planting text on
+// every other site. `seen` adds up how often the word appeared on the site's
+// pages; once a dictionary is full, each page's new swaps replace the entries
+// with the lowest count. The least recently used sites are dropped past
+// MAX_SWAP_SITES.
 
-const swapDict = new Map(); // from -> { to, seen }
+const MAX_SWAP_SITES = 100;
+const swapDicts = new Map(); // site -> Map(from -> { to, seen }), least recently used first
 const swapDictReady = chrome.storage.local
-  .get("swapDict")
+  .get("swapDicts")
   .then((data) => {
-    const saved = (data && data.swapDict) || {};
-    const valid = S.validateSwaps(
-      { swaps: Object.entries(saved).map(([from, v]) => ({ from, to: v && v.to })) },
-      null,
-      S.MAX_SWAP_DICT
-    );
-    for (const { from, to } of valid) swapDict.set(from, { to, seen: Math.max(1, saved[from].seen | 0) });
+    const sites = (data && data.swapDicts) || {};
+    for (const [site, saved] of Object.entries(sites)) {
+      if (!saved || typeof saved !== "object") continue;
+      const valid = S.validateSwaps(
+        { swaps: Object.entries(saved).map(([from, v]) => ({ from, to: v && v.to })) },
+        null,
+        S.MAX_SWAP_DICT
+      );
+      const dict = new Map();
+      for (const { from, to } of valid) dict.set(from, { to, seen: Math.max(1, saved[from].seen | 0) });
+      if (dict.size) swapDicts.set(site, dict);
+    }
+    // The old dictionary was shared by every site; it can't be split, so drop it.
+    chrome.storage.local.remove("swapDict").catch(() => {});
   })
   .catch(() => {});
 
 let swapDictTimer = null;
-function saveSwapDict() {
+function saveSwapDicts() {
   if (swapDictTimer) return;
   swapDictTimer = setTimeout(() => {
     swapDictTimer = null;
-    chrome.storage.local.set({ swapDict: Object.fromEntries(swapDict) }).catch(() => {});
+    const sites = Object.fromEntries([...swapDicts].map(([site, dict]) => [site, Object.fromEntries(dict)]));
+    chrome.storage.local.set({ swapDicts: sites }).catch(() => {});
   }, 1000);
 }
 
+function siteOf(url) {
+  try {
+    return new URL(url).hostname || "";
+  } catch {
+    return "";
+  }
+}
+
+// The site's dictionary, created if needed and moved to most recently used.
+function swapDictFor(site) {
+  const dict = swapDicts.get(site) || new Map();
+  swapDicts.delete(site);
+  swapDicts.set(site, dict);
+  while (swapDicts.size > MAX_SWAP_SITES) swapDicts.delete(swapDicts.keys().next().value);
+  return dict;
+}
+
 // Count this page's words toward the swaps we already have.
-function noteWords(freq) {
+function noteWords(dict, freq) {
   for (const [word, n] of freq) {
-    const entry = swapDict.get(word);
+    const entry = dict.get(word);
     if (entry) entry.seen += n;
   }
-  saveSwapDict();
+  saveSwapDicts();
 }
 
 // Add new swaps, then drop the least seen older entries until it fits.
-function addSwaps(swaps, freq) {
+function addSwaps(dict, swaps, freq) {
   const fresh = new Set();
   for (const { from, to } of swaps) {
-    if (swapDict.has(from)) continue;
-    swapDict.set(from, { to, seen: freq.get(from) || 1 });
+    if (dict.has(from)) continue;
+    dict.set(from, { to, seen: freq.get(from) || 1 });
     fresh.add(from);
   }
-  const evictable = [...swapDict].filter(([w]) => !fresh.has(w)).sort((a, b) => a[1].seen - b[1].seen);
-  while (swapDict.size > S.MAX_SWAP_DICT && evictable.length) swapDict.delete(evictable.shift()[0]);
-  saveSwapDict();
+  const evictable = [...dict].filter(([w]) => !fresh.has(w)).sort((a, b) => a[1].seen - b[1].seen);
+  while (dict.size > S.MAX_SWAP_DICT && evictable.length) dict.delete(evictable.shift()[0]);
+  saveSwapDicts();
 }
 
-function dictSwaps() {
-  return [...swapDict].map(([from, { to }]) => ({ from, to }));
+function dictSwaps(dict) {
+  return [...dict].map(([from, { to }]) => ({ from, to }));
 }
 
 // ---------- model requests ----------
@@ -444,17 +475,17 @@ async function run(job) {
       const swaps = await askWords(job, controller.signal);
       if (!swaps) {
         console.warn(`[Spookify] tab ${job.tabId}: unreadable words reply after ${secs()}s; page uses its word list`);
-        job.respond({ status: "error", error: "unreadable reply", swaps: dictSwaps() });
+        job.respond({ status: "error", error: "unreadable reply", swaps: dictSwaps(job.dict) });
         return;
       }
-      addSwaps(swaps, job.freq);
+      addSwaps(job.dict, swaps, job.freq);
       console.info(
-        `[Spookify] tab ${job.tabId}: ${job.words.length} words -> ${swaps.length} new swaps in ${secs()}s (${swapDict.size} kept)`,
+        `[Spookify] tab ${job.tabId}: ${job.words.length} words -> ${swaps.length} new swaps in ${secs()}s (${job.dict.size} kept)`,
         swaps.map((s) => `${s.from}->${s.to}`).join(", ")
       );
       cache.set(wordsKey(job.url), swaps);
       saveCache();
-      job.respond({ status: "ok", swaps: dictSwaps() });
+      job.respond({ status: "ok", swaps: dictSwaps(job.dict) });
       return;
     }
     const result = await askModel(job, controller.signal);
@@ -489,11 +520,11 @@ async function run(job) {
   } catch (err) {
     if (err.name === "AbortError") {
       console.info(`[Spookify] tab ${job.tabId}: ${job.kind || "batch"} timed out or cancelled after ${secs()}s; page uses fallback`);
-      job.respond({ status: "timeout", swaps: job.kind === "words" ? dictSwaps() : undefined });
+      job.respond({ status: "timeout", swaps: job.kind === "words" ? dictSwaps(job.dict) : undefined });
     } else {
       console.warn(`[Spookify] tab ${job.tabId}: ${err.message}`);
       markFailure(err);
-      job.respond({ status: "error", error: status.lastError, swaps: job.kind === "words" ? dictSwaps() : undefined });
+      job.respond({ status: "error", error: status.lastError, swaps: job.kind === "words" ? dictSwaps(job.dict) : undefined });
     }
   } finally {
     clearTimeout(timer);
@@ -578,25 +609,27 @@ async function handleWords(tabId, msg, respond) {
   }
   const count = Math.max(0, Math.min(S.MAX_SWAPS, msg.count | 0));
   const url = String(msg.url || "");
-  if (!freq.size || !count) return respond({ status: "ok", swaps: [] });
-  noteWords(freq);
+  const site = siteOf(url);
+  if (!freq.size || !count || !site) return respond({ status: "ok", swaps: [] });
+  const dict = swapDictFor(site);
+  noteWords(dict, freq);
 
   const hit = cache.get(wordsKey(url));
   if (Array.isArray(hit)) {
-    addSwaps(S.validateSwaps({ swaps: hit }, null, count), freq);
-    return respond({ status: "ok", swaps: dictSwaps(), cached: true });
+    addSwaps(dict, S.validateSwaps({ swaps: hit }, null, count), freq);
+    return respond({ status: "ok", swaps: dictSwaps(dict), cached: true });
   }
 
-  const words = [...freq.keys()].filter((w) => !swapDict.has(w)).slice(0, 40);
-  if (!words.length) return respond({ status: "ok", swaps: dictSwaps() });
+  const words = [...freq.keys()].filter((w) => !dict.has(w)).slice(0, 40);
+  if (!words.length) return respond({ status: "ok", swaps: dictSwaps(dict) });
 
   if (status.failing && Date.now() - status.lastFailAt < FAILING_RETRY_MS) {
-    return respond({ status: "offline", error: status.lastError, swaps: dictSwaps() });
+    return respond({ status: "offline", error: status.lastError, swaps: dictSwaps(dict) });
   }
 
   if (!queues.has(tabId)) queues.set(tabId, []);
   const title = S.cleanText(String(msg.title || ""));
-  queues.get(tabId).push({ kind: "words", url, title, words, freq, count, tabId, respond, t: Date.now() });
+  queues.get(tabId).push({ kind: "words", url, title, words, freq, count, dict, tabId, respond, t: Date.now() });
   pump();
 }
 
@@ -718,4 +751,68 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     warmUp().then(() => sendResponse({ ok: true }));
     return true;
   }
+  if (msg.type === "spook-preload-sound") {
+    ensureOffscreenDoc().catch(() => {});
+    return;
+  }
+  if (msg.type === "spook-play-sound") {
+    playOffscreenSound(msg.url, msg.durationMs);
+    return;
+  }
+  if (msg.type === "spook-stop-sound") {
+    stopOffscreenSound();
+    return;
+  }
 });
+
+let offscreenCreating = null;
+async function ensureOffscreenDoc() {
+  if (typeof Audio !== "undefined") return; // Firefox / event page with DOM
+  if (!chrome.offscreen) return;
+  try {
+    if (typeof chrome.offscreen.hasDocument === "function" && await chrome.offscreen.hasDocument()) {
+      return;
+    }
+  } catch {}
+  if (offscreenCreating) {
+    await offscreenCreating;
+    return;
+  }
+  offscreenCreating = chrome.offscreen.createDocument({
+    url: "offscreen.html",
+    reasons: ["AUDIO_PLAYBACK"],
+    justification: "Preload and play jumpscare sound"
+  }).catch(() => {}).finally(() => { offscreenCreating = null; });
+  await offscreenCreating;
+}
+
+// Pre-warm offscreen document on service worker start
+ensureOffscreenDoc().catch(() => {});
+
+async function playOffscreenSound(url, durationMs) {
+  if (typeof Audio !== "undefined") {
+    try {
+      const a = new Audio(url);
+      a.volume = 1.0;
+      a.play().catch(() => {});
+      if (durationMs) setTimeout(() => { a.pause(); a.currentTime = 0; }, durationMs);
+    } catch {}
+    return;
+  }
+  if (chrome.offscreen) {
+    try {
+      await ensureOffscreenDoc();
+      chrome.runtime.sendMessage({ type: "play-offscreen-audio", url, durationMs }).catch(() => {});
+    } catch (e) {
+      console.warn("Spookify offscreen audio error:", e);
+    }
+  }
+}
+
+async function stopOffscreenSound() {
+  if (chrome.offscreen) {
+    try {
+      chrome.runtime.sendMessage({ type: "stop-offscreen-audio" }).catch(() => {});
+    } catch {}
+  }
+}

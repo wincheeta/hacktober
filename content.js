@@ -17,8 +17,9 @@
   const LOOKAHEAD = "0px 0px 150% 0px";
   const MAX_CANDIDATES = 1500;
   const REPLY_TIMEOUT_MS = 65000; // > background stale window + request timeout
-  // Text we never rewrite: code, form fields, editors and our own spooks.
-  const NO_SWAP = "script, style, noscript, code, pre, kbd, samp, textarea, input, select, option, svg, [contenteditable=''], [contenteditable='true'], .spook-root, .spook-letters, #spook-layer";
+  // Text we never rewrite: code, forms and controls (a swapped "delete" or
+  // "password" could mislead), editors and our own spooks.
+  const NO_SWAP = "script, style, noscript, code, pre, kbd, samp, textarea, input, select, option, svg, form, button, label, legend, [role='button'], [contenteditable=''], [contenteditable='true'], .spook-root, .spook-letters, #spook-layer";
   const MAX_TEXT_NODES = 3000;
   const STOPWORDS = new Set(
     ("that this with from have your will more about what when which their there them they been were would " +
@@ -30,7 +31,7 @@
     ? (fn) => window.requestIdleCallback(fn, { timeout: 2000 })
     : (fn) => setTimeout(() => fn({ timeRemaining: () => 8, didTimeout: true }), 50);
 
-  const settings = { enabled: true, intensity: 5, dragMode: false };
+  const settings = { enabled: true, intensity: 5, dragMode: false, blockMoodle: true };
   let running = false;
   let gen = 0; // bumped on every reset; replies from an older generation are ignored
   let anchorCounter = 0;
@@ -348,9 +349,14 @@
     idle(step);
   }
 
+  // Login and payment pages keep their words as written.
+  function sensitivePage() {
+    return !!document.querySelector("input[type='password'], input[autocomplete^='cc-']");
+  }
+
   function collectWords(myGen) {
     const count = Math.min(S.MAX_SWAPS, Math.round(level("wordSwaps") * 1.6));
-    if (count <= 0 || !document.body) return;
+    if (count <= 0 || !document.body || sensitivePage()) return;
     const freq = new Map();
     walkText(
       document.body,
@@ -418,10 +424,10 @@
   function rewriteHeading(r, myGen) {
     if (myGen !== gen || !running) return;
     const heading = anchors.get(r.anchor);
-    if (!heading || !heading.isConnected || heading.classList.contains("spook-rewritten")) return;
+    if (!heading || !heading.isConnected || heading.classList.contains("spook-rewritten") || sensitivePage()) return;
     const texts = [];
     const walker = document.createTreeWalker(heading, NodeFilter.SHOW_TEXT);
-    for (let n; (n = walker.nextNode()); ) if (n.nodeValue.trim()) texts.push(n);
+    for (let n; (n = walker.nextNode());) if (n.nodeValue.trim()) texts.push(n);
     if (texts.length !== 1 || texts[0].parentElement.closest(".spook-root, .spook-letters")) return;
     const node = texts[0];
     const original = originals.has(node) ? originals.get(node).text : node.nodeValue;
@@ -457,6 +463,8 @@
   applyTuning(null);
   let jumpTimer = null;
   let jumpUnlisten = null;
+  let jumpAudio = null;
+  let jumpscareFired = false;
 
   function applyTuning(tuning) {
     const t = tuning || {};
@@ -558,7 +566,7 @@
     "One day, your parents put you down as a child and never picked you up again.",
     "Somewhere on the calendar is the anniversary of your death, and you pass it every year without knowing.",
     "In about 4.5 billion years, Andromeda will collide with the Milky Way, dismantling the solar system.",
-    "Elephants will mourn other elephants in their group dying and will hold funerals for them and will even recognize the bones of said elephant and cry out in sadness",
+    "Elephants will mourn other elephants in their group and will hold funerals for them and will even recognize the bones of said elephant and cry out in sadness",
     "Your dog will mourn you when you die, but your cats will be indifferent",
     "You share 50% of your DNA with a banana",
     "Your body contains more bacterial cells than human cells",
@@ -614,51 +622,84 @@
   // Maybe arm one jump-scare at a random depth of the page (20-80% of the way
   // down); it fires when the reader scrolls past it, but never before minDelayMs.
   function maybeJumpscare(myGen) {
+    if (jumpscareFired) return;
+    if (jumpTimer || jumpUnlisten) return; // Already armed; do not arm multiple times
     const scares = assetsFor(SPOOKY_GIFS, "jumpscare");
     const chance = Math.min(1, level("jumpscare") / 10) ** 2;
     if (!scares.length || Math.random() >= chance) return;
     if (typeof JUMPSCARE_NEVER_MS !== "undefined" && JUMPSCARE.cooldownMs >= JUMPSCARE_NEVER_MS) return;
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
+    // Pre-warm the background offscreen audio player so it is loaded and decoded in RAM
+    try {
+      chrome.runtime.sendMessage({ type: "spook-preload-sound" }).catch(() => {});
+    } catch {}
+
     const depth = 0.2 + Math.random() * 0.6;
     jumpTimer = setTimeout(() => {
       jumpTimer = null;
+      if (jumpscareFired || !running || myGen !== gen) return;
+
       // Captured on document so pages that scroll an inner container count too.
       let target = null;
       const onScroll = (e) => {
+        if (jumpscareFired || !running || myGen !== gen) {
+          if (typeof jumpUnlisten === "function") jumpUnlisten();
+          return;
+        }
         const el = e.target === document ? document.scrollingElement || document.documentElement : e.target;
         if (!el || el.clientHeight < window.innerHeight / 2) return; // a small scrolling widget, not the page
         // Fixed in pixels on the first scroll, so infinite feeds that grow as
         // they're scrolled don't keep pushing it out of reach.
         if (target === null) target = depth * (el.scrollHeight - el.clientHeight);
         if (el.scrollTop < target) return;
-        jumpUnlisten();
-        if (myGen === gen && running) jumpscare(pickWeighted(scares));
+
+        // Immediately mark as fired and unlisten so further scrolling NEVER fires it again!
+        jumpscareFired = true;
+        if (typeof jumpUnlisten === "function") jumpUnlisten();
+        jumpscare(pickWeighted(scares));
       };
-      document.addEventListener("scroll", onScroll, { capture: true, passive: true });
+      // Assign jumpUnlisten BEFORE addEventListener so onScroll never finds it null.
       jumpUnlisten = () => {
         document.removeEventListener("scroll", onScroll, { capture: true });
         jumpUnlisten = null;
       };
+      document.addEventListener("scroll", onScroll, { capture: true, passive: true });
     }, JUMPSCARE.minDelayMs);
   }
 
   function cancelJumpscare() {
     clearTimeout(jumpTimer);
     jumpTimer = null;
-    if (jumpUnlisten) jumpUnlisten();
+    if (typeof jumpUnlisten === "function") jumpUnlisten();
     jumpUnlisten = null;
+    if (jumpAudio) {
+      jumpAudio.pause();
+      jumpAudio.currentTime = 0;
+      jumpAudio = null;
+    }
+    try {
+      chrome.runtime.sendMessage({ type: "spook-stop-sound" }).catch(() => {});
+    } catch {}
   }
 
+  let jumpscareInProgress = false;
   async function jumpscare(entry) {
+    // Synchronous guard: reject any concurrent call before the async storage await.
+    if (jumpscareInProgress) return;
+    jumpscareInProgress = true;
+    if (document.querySelector(".spook-jumpscare")) { jumpscareInProgress = false; return; }
     // Cooldown is shared across tabs so browsing doesn't become a string of scares.
     try {
       const { lastJumpscare = 0 } = await chrome.storage.local.get("lastJumpscare");
-      if (Date.now() - lastJumpscare < JUMPSCARE.cooldownMs) return;
+      if (Date.now() - lastJumpscare < JUMPSCARE.cooldownMs) { jumpscareInProgress = false; return; }
       await chrome.storage.local.set({ lastJumpscare: Date.now() });
     } catch {
+      jumpscareInProgress = false;
       return; // extension reloaded
     }
-    if (!running) return;
+    if (!running) { jumpscareInProgress = false; return; }
+    if (document.querySelector(".spook-jumpscare")) { jumpscareInProgress = false; return; }
     let gif;
     try {
       gif = createSpookyGif(entry);
@@ -671,8 +712,26 @@
     scare.dataset.spookGif = entry.id;
     scare.style.setProperty("--spook-jump-ms", `${JUMPSCARE.durationMs}ms`);
     scare.appendChild(gif);
+
+    // Simultaneously trigger instant audio playback and visual insertion
+    const soundUrl = chrome.runtime.getURL("audio/five-nights-at-freddys-full-scream-sound_2.mp3");
+    try {
+      chrome.runtime.sendMessage({
+        type: "spook-play-sound",
+        url: soundUrl,
+        durationMs: JUMPSCARE.durationMs
+      }).catch(() => {});
+    } catch {}
+
     document.body.appendChild(scare);
-    setTimeout(() => scare.remove(), JUMPSCARE.durationMs);
+
+    setTimeout(() => {
+      scare.remove();
+      jumpscareInProgress = false;
+      try {
+        chrome.runtime.sendMessage({ type: "spook-stop-sound" }).catch(() => {});
+      } catch {}
+    }, JUMPSCARE.durationMs);
   }
 
   function repositionAll() {
@@ -815,7 +874,7 @@
       }));
     const key = pinKey();
     try {
-      (list.length ? chrome.storage.local.set({ [key]: list }) : chrome.storage.local.remove(key)).catch(() => {});
+      (list.length ? chrome.storage.local.set({ [key]: list }) : chrome.storage.local.remove(key)).catch(() => { });
     } catch {
       // extension reloaded: nowhere to save
     }
@@ -879,7 +938,7 @@
         const roots = addedRoots;
         addedRoots = [];
         roots.forEach((root) => {
-          SpookyMoodle.grepAndRemove(root);
+          if (settings.blockMoodle) SpookyMoodle.grepAndRemove(root);
           scanRoot(root);
           applySwaps(root, gen);
         });
@@ -953,15 +1012,21 @@
   // Restore moved spooks first, so their anchors aren't decorated twice.
   function rescan() {
     const myGen = gen;
-    SpookyMoodle.grepAndRemove(document.body);
+    if (settings.blockMoodle) SpookyMoodle.grepAndRemove(document.body);
     restorePins(myGen).finally(() => {
       if (myGen !== gen) return;
-      idle(() => {
-        scanRoot(document.body);
-        idle(() => scatterDecor(myGen));
-        idle(() => collectWords(myGen));
-      });
-      maybeJumpscare(myGen);
+      {
+        idle(() => {
+          {
+            scanRoot(document.body);
+            idle(() => scatterDecor(myGen));
+            idle(() => collectWords(myGen));
+          };
+          idle(() => scatterDecor(myGen));
+          idle(() => collectWords(myGen));
+        });
+        maybeJumpscare(myGen);
+      }
     });
   }
 
@@ -969,6 +1034,11 @@
     gen++;
     // Free the model for fresh batches instead of finishing ones we'll ignore.
     cancelModelWork();
+    try {
+      chrome.runtime.sendMessage({ type: "spook-cancel" }).catch(() => { });
+    } catch {
+      // extension reloaded: nothing to cancel
+    }
     clearTimeout(flushTimer);
     clearTimeout(mutationTimer);
     cancelJumpscare();
@@ -1037,6 +1107,11 @@
       settings.dragMode = changes.dragMode.newValue === true;
       applyDragMode();
     }
+    // Removed content can't be put back, so turning it off only stops further removal.
+    if (changes.blockMoodle) {
+      settings.blockMoodle = changes.blockMoodle.newValue !== false;
+      if (settings.blockMoodle && running && document.body) SpookyMoodle.grepAndRemove(document.body);
+    }
     if (changes.enabled) {
       settings.enabled = changes.enabled.newValue !== false;
       applyEnabled();
@@ -1050,7 +1125,7 @@
     if (msg && msg.type === "get-swaps") sendResponse({ swaps: swapMap ? [...swapMap].map(([from, to]) => ({ from, to })) : [] });
   });
 
-  const STORED = { enabled: true, intensity: 5, dragMode: false, tuning: null };
+  const STORED = { enabled: true, intensity: 5, dragMode: false, blockMoodle: true, tuning: null };
   chrome.storage.sync
     .get(STORED)
     .catch(() => STORED)
@@ -1058,6 +1133,7 @@
       settings.enabled = s.enabled !== false;
       settings.intensity = Number(s.intensity) || 5;
       settings.dragMode = s.dragMode === true;
+      settings.blockMoodle = s.blockMoodle !== false;
       applyTuning(s.tuning);
       applyEnabled();
     });
