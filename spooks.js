@@ -87,7 +87,20 @@
       needsText: false,
       render() {
         const root = el("span", "spook-ghost");
-        root.appendChild(el("span", "spook-sprite", "👻"));
+        // 1 in 100 ghosts is the cursed one.
+        const file = Math.random() < 0.01 ? "cursedghost.svg" : "ghost.svg";
+        let src;
+        try {
+          src = chrome.runtime.getURL(`spooky-components/${file}`);
+        } catch {
+          // Extension reloaded: getURL throws, so fall back to the emoji.
+          root.appendChild(el("span", "spook-sprite", "👻"));
+          return root;
+        }
+        const img = el("img", "spook-sprite");
+        img.src = src;
+        img.alt = "";
+        root.appendChild(img);
         return root;
       },
     },
